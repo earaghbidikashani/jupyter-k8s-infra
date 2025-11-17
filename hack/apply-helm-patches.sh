@@ -156,11 +156,20 @@ if [ -f "${PATCHES_DIR}/values.yaml.patch" ]; then
   # Controller pod scheduling configuration\
   nodeSelector: {}\
   tolerations: []\
-  affinity: {}
+  affinity: {}\
+  topologySpreadConstraints: []\
+  # Controller pod metadata configuration\
+  podLabels: {}\
+  podAnnotations: {}\
+  # Pod disruption budget configuration\
+  podDisruptionBudget:\
+    enabled: false\
+    minAvailable: 1\
+    # maxUnavailable: 1
 ' "${CHART_DIR}/values.yaml"
         else
             # Linux sed
-            sed -i '/terminationGracePeriodSeconds:/a\  # Controller pod scheduling configuration\n  nodeSelector: {}\n  tolerations: []\n  affinity: {}' "${CHART_DIR}/values.yaml"
+            sed -i '/terminationGracePeriodSeconds:/a\  # Controller pod scheduling configuration\n  nodeSelector: {}\n  tolerations: []\n  affinity: {}\n  topologySpreadConstraints: []\n  # Controller pod metadata configuration\n  podLabels: {}\n  podAnnotations: {}\n  # Pod disruption budget configuration\n  podDisruptionBudget:\n    enabled: false\n    minAvailable: 1\n    # maxUnavailable: 1' "${CHART_DIR}/values.yaml"
         fi
     fi
 

@@ -46,6 +46,15 @@ controllerManager:
   nodeSelector: {}
   tolerations: []
   affinity: {}
+  topologySpreadConstraints: []
+  # Controller pod metadata configuration
+  podLabels: {}
+  podAnnotations: {}
+  # Pod disruption budget configuration
+  podDisruptionBudget:
+    enabled: false
+    minAvailable: 1
+    # maxUnavailable: 1
   serviceAccountName: jupyter-k8s-controller-manager
 
 # [RBAC]: To enable RBAC (Permissions) configurations
