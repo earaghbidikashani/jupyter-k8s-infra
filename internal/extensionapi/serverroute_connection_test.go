@@ -1317,3 +1317,273 @@ func TestValidateWebUIConnection(t *testing.T) {
 		})
 	}
 }
+
+// TestIsWorkspaceAvailable tests the isWorkspaceAvailable helper function
+func TestIsWorkspaceAvailable(t *testing.T) {
+	tests := []struct {
+		name      string
+		workspace *workspacev1alpha1.Workspace
+		expected  bool
+	}{
+		{
+			name: "no conditions",
+			workspace: &workspacev1alpha1.Workspace{
+				Status: workspacev1alpha1.WorkspaceStatus{
+					Conditions: []metav1.Condition{},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "Available condition is False",
+			workspace: &workspacev1alpha1.Workspace{
+				Status: workspacev1alpha1.WorkspaceStatus{
+					Conditions: []metav1.Condition{
+						{
+							Type:   "Available",
+							Status: metav1.ConditionFalse,
+						},
+					},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "Available condition is True",
+			workspace: &workspacev1alpha1.Workspace{
+				Status: workspacev1alpha1.WorkspaceStatus{
+					Conditions: []metav1.Condition{
+						{
+							Type:   "Available",
+							Status: metav1.ConditionTrue,
+						},
+					},
+				},
+			},
+			expected: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := isWorkspaceAvailable(tt.workspace)
+			if result != tt.expected {
+				t.Errorf("expected %v, got %v", tt.expected, result)
+			}
+		})
+	}
+}
+
+// TestHasSSMConfigured tests the hasSSMConfigured helper function
+func TestHasSSMConfigured(t *testing.T) {
+	tests := []struct {
+		name           string
+		accessStrategy *workspacev1alpha1.WorkspaceAccessStrategy
+		expected       bool
+	}{
+		{
+			name:           "nil access strategy",
+			accessStrategy: nil,
+			expected:       false,
+		},
+		{
+			name: "nil CreateConnectionContext",
+			accessStrategy: &workspacev1alpha1.WorkspaceAccessStrategy{
+				Spec: workspacev1alpha1.WorkspaceAccessStrategySpec{
+					CreateConnectionContext: nil,
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "empty SSMDocumentName",
+			accessStrategy: &workspacev1alpha1.WorkspaceAccessStrategy{
+				Spec: workspacev1alpha1.WorkspaceAccessStrategySpec{
+					CreateConnectionContext: map[string]string{
+						"SSMDocumentName": "",
+					},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "SSMDocumentName configured",
+			accessStrategy: &workspacev1alpha1.WorkspaceAccessStrategy{
+				Spec: workspacev1alpha1.WorkspaceAccessStrategySpec{
+					CreateConnectionContext: map[string]string{
+						"SSMDocumentName": "my-ssm-document",
+					},
+				},
+			},
+			expected: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := hasSSMConfigured(tt.accessStrategy)
+			if result != tt.expected {
+				t.Errorf("expected %v, got %v", tt.expected, result)
+			}
+		})
+	}
+}
+
+// TestValidateVSCodeConnection tests the validateVSCodeConnection function
+func TestValidateVSCodeConnection(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = workspacev1alpha1.AddToScheme(scheme)
+
+	tests := []struct {
+		name               string
+		workspace          *workspacev1alpha1.Workspace
+		accessStrategy     *workspacev1alpha1.WorkspaceAccessStrategy
+		expectedStatusCode int
+		expectedError      string
+	}{
+		{
+			name:               "workspace not found",
+			expectedStatusCode: http.StatusInternalServerError,
+			expectedError:      "failed to retrieve workspace",
+		},
+		{
+			name: "workspace not available",
+			workspace: &workspacev1alpha1.Workspace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-workspace",
+					Namespace: "default",
+				},
+				Spec: workspacev1alpha1.WorkspaceSpec{
+					AccessStrategy: &workspacev1alpha1.AccessStrategyRef{
+						Name: "test-strategy",
+					},
+				},
+				Status: workspacev1alpha1.WorkspaceStatus{
+					Conditions: []metav1.Condition{
+						{
+							Type:   "Available",
+							Status: metav1.ConditionFalse,
+						},
+					},
+				},
+			},
+			accessStrategy: &workspacev1alpha1.WorkspaceAccessStrategy{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-strategy",
+					Namespace: "default",
+				},
+				Spec: workspacev1alpha1.WorkspaceAccessStrategySpec{
+					CreateConnectionContext: map[string]string{
+						"SSMDocumentName": "my-document",
+					},
+				},
+			},
+			expectedStatusCode: http.StatusServiceUnavailable,
+			expectedError:      "workspace is not available",
+		},
+		{
+			name: "SSM not configured",
+			workspace: &workspacev1alpha1.Workspace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-workspace",
+					Namespace: "default",
+				},
+				Spec: workspacev1alpha1.WorkspaceSpec{
+					AccessStrategy: &workspacev1alpha1.AccessStrategyRef{
+						Name: "test-strategy",
+					},
+				},
+				Status: workspacev1alpha1.WorkspaceStatus{
+					Conditions: []metav1.Condition{
+						{
+							Type:   "Available",
+							Status: metav1.ConditionTrue,
+						},
+					},
+				},
+			},
+			accessStrategy: &workspacev1alpha1.WorkspaceAccessStrategy{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-strategy",
+					Namespace: "default",
+				},
+				Spec: workspacev1alpha1.WorkspaceAccessStrategySpec{
+					CreateConnectionContext: map[string]string{},
+				},
+			},
+			expectedStatusCode: http.StatusBadRequest,
+			expectedError:      "remote connection is not configured",
+		},
+		{
+			name: "validation passes",
+			workspace: &workspacev1alpha1.Workspace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-workspace",
+					Namespace: "default",
+				},
+				Spec: workspacev1alpha1.WorkspaceSpec{
+					AccessStrategy: &workspacev1alpha1.AccessStrategyRef{
+						Name: "test-strategy",
+					},
+				},
+				Status: workspacev1alpha1.WorkspaceStatus{
+					Conditions: []metav1.Condition{
+						{
+							Type:   "Available",
+							Status: metav1.ConditionTrue,
+						},
+					},
+				},
+			},
+			accessStrategy: &workspacev1alpha1.WorkspaceAccessStrategy{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-strategy",
+					Namespace: "default",
+				},
+				Spec: workspacev1alpha1.WorkspaceAccessStrategySpec{
+					CreateConnectionContext: map[string]string{
+						"SSMDocumentName": "my-ssm-document",
+					},
+				},
+			},
+			expectedStatusCode: 0,
+			expectedError:      "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var objects []client.Object
+			if tt.workspace != nil {
+				objects = append(objects, tt.workspace)
+			}
+			if tt.accessStrategy != nil {
+				objects = append(objects, tt.accessStrategy)
+			}
+
+			fakeClient := ctrlclient.NewClientBuilder().WithScheme(scheme).WithObjects(objects...).Build()
+
+			server := &ExtensionServer{
+				k8sClient: fakeClient,
+			}
+
+			statusCode, err := server.validateVSCodeConnection("default", "test-workspace")
+
+			if statusCode != tt.expectedStatusCode {
+				t.Errorf("expected status code %d, got %d", tt.expectedStatusCode, statusCode)
+			}
+
+			if tt.expectedError == "" {
+				if err != nil {
+					t.Errorf("expected no error, got %v", err)
+				}
+			} else {
+				if err == nil {
+					t.Errorf("expected error containing %q, got nil", tt.expectedError)
+				} else if !strings.Contains(err.Error(), tt.expectedError) {
+					t.Errorf("expected error containing %q, got %q", tt.expectedError, err.Error())
+				}
+			}
+		})
+	}
+}
