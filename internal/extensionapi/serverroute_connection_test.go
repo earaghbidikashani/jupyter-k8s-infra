@@ -1028,6 +1028,48 @@ func TestGenerateVSCodeURL_MissingSSMDocumentName(t *testing.T) {
 	}
 }
 
+// TestHasWebUIEnabled tests the hasWebUIEnabled helper function
+func TestHasWebUIEnabled(t *testing.T) {
+	tests := []struct {
+		name           string
+		accessStrategy *workspacev1alpha1.WorkspaceAccessStrategy
+		expected       bool
+	}{
+		{
+			name:           "nil access strategy",
+			accessStrategy: nil,
+			expected:       false,
+		},
+		{
+			name: "empty BearerAuthURLTemplate",
+			accessStrategy: &workspacev1alpha1.WorkspaceAccessStrategy{
+				Spec: workspacev1alpha1.WorkspaceAccessStrategySpec{
+					BearerAuthURLTemplate: "",
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "BearerAuthURLTemplate configured",
+			accessStrategy: &workspacev1alpha1.WorkspaceAccessStrategy{
+				Spec: workspacev1alpha1.WorkspaceAccessStrategySpec{
+					BearerAuthURLTemplate: "https://example.com/bearer-auth",
+				},
+			},
+			expected: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := hasWebUIEnabled(tt.accessStrategy)
+			if result != tt.expected {
+				t.Errorf("expected %v, got %v", tt.expected, result)
+			}
+		})
+	}
+}
+
 // TestIsWorkspaceAvailable tests the isWorkspaceAvailable helper function
 func TestIsWorkspaceAvailable(t *testing.T) {
 	tests := []struct {
@@ -1059,6 +1101,20 @@ func TestIsWorkspaceAvailable(t *testing.T) {
 			expected: false,
 		},
 		{
+			name: "Available condition is Unknown",
+			workspace: &workspacev1alpha1.Workspace{
+				Status: workspacev1alpha1.WorkspaceStatus{
+					Conditions: []metav1.Condition{
+						{
+							Type:   "Available",
+							Status: metav1.ConditionUnknown,
+						},
+					},
+				},
+			},
+			expected: false,
+		},
+		{
 			name: "Available condition is True",
 			workspace: &workspacev1alpha1.Workspace{
 				Status: workspacev1alpha1.WorkspaceStatus{
@@ -1066,6 +1122,28 @@ func TestIsWorkspaceAvailable(t *testing.T) {
 						{
 							Type:   "Available",
 							Status: metav1.ConditionTrue,
+						},
+					},
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "multiple conditions with Available True",
+			workspace: &workspacev1alpha1.Workspace{
+				Status: workspacev1alpha1.WorkspaceStatus{
+					Conditions: []metav1.Condition{
+						{
+							Type:   "Progressing",
+							Status: metav1.ConditionFalse,
+						},
+						{
+							Type:   "Available",
+							Status: metav1.ConditionTrue,
+						},
+						{
+							Type:   "Degraded",
+							Status: metav1.ConditionFalse,
 						},
 					},
 				},
@@ -1084,63 +1162,8 @@ func TestIsWorkspaceAvailable(t *testing.T) {
 	}
 }
 
-// TestHasSSMConfigured tests the hasSSMConfigured helper function
-func TestHasSSMConfigured(t *testing.T) {
-	tests := []struct {
-		name           string
-		accessStrategy *workspacev1alpha1.WorkspaceAccessStrategy
-		expected       bool
-	}{
-		{
-			name:           "nil access strategy",
-			accessStrategy: nil,
-			expected:       false,
-		},
-		{
-			name: "nil CreateConnectionContext",
-			accessStrategy: &workspacev1alpha1.WorkspaceAccessStrategy{
-				Spec: workspacev1alpha1.WorkspaceAccessStrategySpec{
-					CreateConnectionContext: nil,
-				},
-			},
-			expected: false,
-		},
-		{
-			name: "empty SSMDocumentName",
-			accessStrategy: &workspacev1alpha1.WorkspaceAccessStrategy{
-				Spec: workspacev1alpha1.WorkspaceAccessStrategySpec{
-					CreateConnectionContext: map[string]string{
-						"ssmDocumentName": "",
-					},
-				},
-			},
-			expected: false,
-		},
-		{
-			name: "SSMDocumentName configured",
-			accessStrategy: &workspacev1alpha1.WorkspaceAccessStrategy{
-				Spec: workspacev1alpha1.WorkspaceAccessStrategySpec{
-					CreateConnectionContext: map[string]string{
-						"ssmDocumentName": "my-ssm-document",
-					},
-				},
-			},
-			expected: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := hasSSMConfigured(tt.accessStrategy)
-			if result != tt.expected {
-				t.Errorf("expected %v, got %v", tt.expected, result)
-			}
-		})
-	}
-}
-
-// TestValidateVSCodeConnection tests the validateVSCodeConnection function
-func TestValidateVSCodeConnection(t *testing.T) {
+// TestValidateWebUIConnection tests the validateWebUIConnection function
+func TestValidateWebUIConnection(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = workspacev1alpha1.AddToScheme(scheme)
 
@@ -1183,16 +1206,14 @@ func TestValidateVSCodeConnection(t *testing.T) {
 					Namespace: "default",
 				},
 				Spec: workspacev1alpha1.WorkspaceAccessStrategySpec{
-					CreateConnectionContext: map[string]string{
-						"ssmDocumentName": "my-document",
-					},
+					BearerAuthURLTemplate: "https://example.com/bearer-auth",
 				},
 			},
 			expectedStatusCode: http.StatusServiceUnavailable,
 			expectedError:      "workspace is not available",
 		},
 		{
-			name: "SSM not configured",
+			name: "WebUI not enabled - no BearerAuthURLTemplate",
 			workspace: &workspacev1alpha1.Workspace{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-workspace",
@@ -1218,11 +1239,11 @@ func TestValidateVSCodeConnection(t *testing.T) {
 					Namespace: "default",
 				},
 				Spec: workspacev1alpha1.WorkspaceAccessStrategySpec{
-					CreateConnectionContext: map[string]string{},
+					BearerAuthURLTemplate: "",
 				},
 			},
 			expectedStatusCode: http.StatusBadRequest,
-			expectedError:      "remote connection is not configured",
+			expectedError:      "web browser access is not enabled",
 		},
 		{
 			name: "validation passes",
@@ -1251,9 +1272,7 @@ func TestValidateVSCodeConnection(t *testing.T) {
 					Namespace: "default",
 				},
 				Spec: workspacev1alpha1.WorkspaceAccessStrategySpec{
-					CreateConnectionContext: map[string]string{
-						"ssmDocumentName": "my-ssm-document",
-					},
+					BearerAuthURLTemplate: "https://example.com/bearer-auth",
 				},
 			},
 			expectedStatusCode: 0,
@@ -1277,7 +1296,8 @@ func TestValidateVSCodeConnection(t *testing.T) {
 				k8sClient: fakeClient,
 			}
 
-			statusCode, err := server.validateVSCodeConnection("default", "test-workspace")
+			logger := ctrl.Log.WithName("test")
+			statusCode, err := server.validateWebUIConnection("default", "test-workspace", logger)
 
 			if statusCode != tt.expectedStatusCode {
 				t.Errorf("expected status code %d, got %d", tt.expectedStatusCode, statusCode)
