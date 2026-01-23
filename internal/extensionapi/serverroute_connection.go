@@ -90,6 +90,63 @@ func (s *ExtensionServer) validateWebUIConnection(namespace, workspaceName strin
 	return 0, nil
 }
 
+// isWorkspaceAvailable checks if the workspace has the Available condition set to True.
+func isWorkspaceAvailable(ws *workspacev1alpha1.Workspace) bool {
+	for _, condition := range ws.Status.Conditions {
+		if condition.Type == "Available" && condition.Status == metav1.ConditionTrue {
+			return true
+		}
+	}
+	return false
+}
+
+// hasSSMConfigured checks if SSM remote access is configured in the access strategy.
+func hasSSMConfigured(accessStrategy *workspacev1alpha1.WorkspaceAccessStrategy) bool {
+	if accessStrategy == nil {
+		return false
+	}
+	if accessStrategy.Spec.CreateConnectionContext == nil {
+		return false
+	}
+	return accessStrategy.Spec.CreateConnectionContext[aws.SSMDocumentNameKey] != ""
+}
+
+// validateVSCodeConnection validates that a workspace is ready for VSCode remote connections.
+// Returns (statusCode, error). If validation passes, returns (0, nil).
+func (s *ExtensionServer) validateVSCodeConnection(namespace, workspaceName string) (int, error) {
+	logger := ctrl.Log.WithName("vscode-validation")
+
+	// Check Workspace is available
+	ws, err := s.getWorkspace(namespace, workspaceName)
+	if err != nil {
+		logger.Error(err, "Failed to get workspace for VSCode validation", "workspaceName", workspaceName)
+		return http.StatusInternalServerError, fmt.Errorf("failed to retrieve workspace")
+	}
+
+	if !isWorkspaceAvailable(ws) {
+		logger.Info("VSCode connection rejected: workspace not available",
+			"workspaceName", workspaceName,
+			"namespace", namespace)
+		return http.StatusServiceUnavailable, fmt.Errorf("workspace is not available. Check workspace status for details")
+	}
+
+	// Check Access strategy exists and has SSM configuration
+	accessStrategy, err := s.getAccessStrategy(ws)
+	if err != nil {
+		logger.Error(err, "Failed to get access strategy for VSCode validation", "workspaceName", workspaceName)
+		return http.StatusInternalServerError, fmt.Errorf("failed to retrieve access strategy")
+	}
+
+	if !hasSSMConfigured(accessStrategy) {
+		logger.Info("VSCode connection rejected: SSM not configured",
+			"workspaceName", workspaceName,
+			"namespace", namespace)
+		return http.StatusBadRequest, fmt.Errorf("remote connection is not configured for this workspace. Contact your administrator")
+	}
+
+	return 0, nil
+}
+
 // generateWebUIBearerTokenURL generates a Web UI connection URL with JWT token
 // Returns (connectionType, connectionURL, error)
 func (s *ExtensionServer) generateWebUIBearerTokenURL(r *http.Request, workspaceName, namespace string) (string, string, error) {
@@ -239,6 +296,14 @@ func (s *ExtensionServer) HandleConnectionCreate(w http.ResponseWriter, r *http.
 	// Pre-validate WebUI connections before attempting to generate URL
 	if req.Spec.WorkspaceConnectionType == connectionv1alpha1.ConnectionTypeWebUI {
 		if statusCode, err := s.validateWebUIConnection(namespace, req.Spec.WorkspaceName, logger); err != nil {
+			WriteKubernetesError(w, statusCode, err.Error())
+			return
+		}
+	}
+
+	// Pre-validate VSCode connections before attempting to generate URL
+	if req.Spec.WorkspaceConnectionType == connectionv1alpha1.ConnectionTypeVSCodeRemote {
+		if statusCode, err := s.validateVSCodeConnection(namespace, req.Spec.WorkspaceName); err != nil {
 			WriteKubernetesError(w, statusCode, err.Error())
 			return
 		}
