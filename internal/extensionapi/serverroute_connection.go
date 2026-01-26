@@ -58,16 +58,16 @@ func isWorkspaceAvailable(ws *workspacev1alpha1.Workspace) bool {
 }
 
 // validateWebUIConnection validates that a workspace is ready for WebUI connections.
-// Returns (statusCode, error). If validation passes, returns (0, nil).
-func (s *ExtensionServer) validateWebUIConnection(namespace, workspaceName string, logger logr.Logger) (int, error) {
+// Returns (workspace, accessStrategy, statusCode, error). If validation passes, returns (ws, as, 0, nil).
+func (s *ExtensionServer) validateWebUIConnection(namespace, workspaceName string, logger logr.Logger) (*workspacev1alpha1.Workspace, *workspacev1alpha1.WorkspaceAccessStrategy, int, error) {
 	ws, err := s.getWorkspace(namespace, workspaceName)
 	if err != nil {
 		logger.Error(err, "Failed to get workspace for WebUI validation", "workspaceName", workspaceName)
 
 		if errors.IsNotFound(err) {
-			return http.StatusNotFound, fmt.Errorf("workspace not found")
+			return nil, nil, http.StatusNotFound, fmt.Errorf("workspace not found")
 		}
-		return http.StatusInternalServerError, fmt.Errorf("failed to retrieve workspace")
+		return nil, nil, http.StatusInternalServerError, fmt.Errorf("failed to retrieve workspace")
 	}
 
 	accessStrategy, err := s.getAccessStrategy(ws)
@@ -75,9 +75,9 @@ func (s *ExtensionServer) validateWebUIConnection(namespace, workspaceName strin
 		logger.Error(err, "Failed to get access strategy for WebUI validation", "workspaceName", workspaceName)
 
 		if errors.IsNotFound(err) {
-			return http.StatusNotFound, fmt.Errorf("access strategy not found")
+			return nil, nil, http.StatusNotFound, fmt.Errorf("access strategy not found")
 		}
-		return http.StatusInternalServerError, fmt.Errorf("failed to retrieve access strategy")
+		return nil, nil, http.StatusInternalServerError, fmt.Errorf("failed to retrieve access strategy")
 	}
 
 	// Check 1: WebUI is enabled via BearerAuthURLTemplate
@@ -85,7 +85,7 @@ func (s *ExtensionServer) validateWebUIConnection(namespace, workspaceName strin
 		logger.Info("WebUI connection rejected: WebUI not enabled for workspace",
 			"workspaceName", workspaceName,
 			"namespace", namespace)
-		return http.StatusBadRequest, fmt.Errorf("web browser access is not enabled for this workspace. Use a remote connection or contact your administrator")
+		return nil, nil, http.StatusBadRequest, fmt.Errorf("web browser access is not enabled for this workspace. Use a remote connection or contact your administrator")
 	}
 
 	// Check 2: Workspace is available
@@ -93,10 +93,10 @@ func (s *ExtensionServer) validateWebUIConnection(namespace, workspaceName strin
 		logger.Info("WebUI connection rejected: workspace not available",
 			"workspaceName", workspaceName,
 			"namespace", namespace)
-		return http.StatusBadRequest, fmt.Errorf("workspace is not available. Check workspace status for details")
+		return nil, nil, http.StatusBadRequest, fmt.Errorf("workspace is not available. Check workspace status for details")
 	}
 
-	return 0, nil
+	return ws, accessStrategy, 0, nil
 }
 
 // hasSSMConfigured checks if SSM remote access is configured in the access strategy.
@@ -111,8 +111,8 @@ func hasSSMConfigured(accessStrategy *workspacev1alpha1.WorkspaceAccessStrategy)
 }
 
 // validateVSCodeConnection validates that a workspace is ready for VSCode remote connections.
-// Returns (statusCode, error). If validation passes, returns (0, nil).
-func (s *ExtensionServer) validateVSCodeConnection(namespace, workspaceName string) (int, error) {
+// Returns (workspace, accessStrategy, statusCode, error). If validation passes, returns (ws, as, 0, nil).
+func (s *ExtensionServer) validateVSCodeConnection(namespace, workspaceName string) (*workspacev1alpha1.Workspace, *workspacev1alpha1.WorkspaceAccessStrategy, int, error) {
 	logger := ctrl.Log.WithName("vscode-validation")
 
 	// Check Workspace is available
@@ -121,16 +121,16 @@ func (s *ExtensionServer) validateVSCodeConnection(namespace, workspaceName stri
 		logger.Error(err, "Failed to get workspace for VSCode validation", "workspaceName", workspaceName)
 
 		if errors.IsNotFound(err) {
-			return http.StatusNotFound, fmt.Errorf("workspace not found")
+			return nil, nil, http.StatusNotFound, fmt.Errorf("workspace not found")
 		}
-		return http.StatusInternalServerError, fmt.Errorf("failed to retrieve workspace")
+		return nil, nil, http.StatusInternalServerError, fmt.Errorf("failed to retrieve workspace")
 	}
 
 	if !isWorkspaceAvailable(ws) {
 		logger.Info("VSCode connection rejected: workspace not available",
 			"workspaceName", workspaceName,
 			"namespace", namespace)
-		return http.StatusBadRequest, fmt.Errorf("workspace is not available. Check workspace status for details")
+		return nil, nil, http.StatusBadRequest, fmt.Errorf("workspace is not available. Check workspace status for details")
 	}
 
 	// Check Access strategy exists and has SSM configuration
@@ -139,47 +139,38 @@ func (s *ExtensionServer) validateVSCodeConnection(namespace, workspaceName stri
 		logger.Error(err, "Failed to get access strategy for VSCode validation", "workspaceName", workspaceName)
 
 		if errors.IsNotFound(err) {
-			return http.StatusNotFound, fmt.Errorf("access strategy not found")
+			return nil, nil, http.StatusNotFound, fmt.Errorf("access strategy not found")
 		}
-		return http.StatusInternalServerError, fmt.Errorf("failed to retrieve access strategy")
+		return nil, nil, http.StatusInternalServerError, fmt.Errorf("failed to retrieve access strategy")
 	}
 
 	if !hasSSMConfigured(accessStrategy) {
 		logger.Info("VSCode connection rejected: SSM not configured",
 			"workspaceName", workspaceName,
 			"namespace", namespace)
-		return http.StatusBadRequest, fmt.Errorf("remote connection is not configured for this workspace. Contact your administrator")
+		return nil, nil, http.StatusBadRequest, fmt.Errorf("remote connection is not configured for this workspace. Contact your administrator")
 	}
 
-	return 0, nil
+	return ws, accessStrategy, 0, nil
 }
 
 // generateWebUIBearerTokenURL generates a Web UI connection URL with JWT token
 // Returns (connectionType, connectionURL, error)
-func (s *ExtensionServer) generateWebUIBearerTokenURL(r *http.Request, workspaceName, namespace string) (string, string, error) {
+func (s *ExtensionServer) generateWebUIBearerTokenURL(r *http.Request, ws *workspacev1alpha1.Workspace, accessStrategy *workspacev1alpha1.WorkspaceAccessStrategy) (string, string, error) {
 	user := GetUser(r)
 	if user == "" {
 		return "", "", fmt.Errorf("user information not found in request headers")
 	}
 
-	// Get workspace and access strategy for signer configuration
-	ws, err := s.getWorkspace(namespace, workspaceName)
-	if err != nil {
-		return "", "", fmt.Errorf("failed to get workspace: %w", err)
-	}
-
-	accessStrategy, err := s.getAccessStrategy(ws)
-	if err != nil {
-		return "", "", fmt.Errorf("failed to get access strategy: %w", err)
-	}
-
-	// Require AccessStrategy with BearerAuthURLTemplate
+	// Validate inputs
 	if accessStrategy == nil {
 		return "", "", fmt.Errorf("no AccessStrategy configured for workspace")
 	}
 	if accessStrategy.Spec.BearerAuthURLTemplate == "" {
 		return "", "", fmt.Errorf("BearerAuthURLTemplate not configured in AccessStrategy")
 	}
+
+	// Workspace and access strategy already validated and fetched
 
 	// Create signer based on access strategy
 	signer, err := s.signerFactory.CreateSigner(accessStrategy)
@@ -300,17 +291,22 @@ func (s *ExtensionServer) HandleConnectionCreate(w http.ResponseWriter, r *http.
 		return
 	}
 
-	// Pre-validate WebUI connections before attempting to generate URL
-	if req.Spec.WorkspaceConnectionType == connectionv1alpha1.ConnectionTypeWebUI {
-		if statusCode, err := s.validateWebUIConnection(namespace, req.Spec.WorkspaceName, logger); err != nil {
+	// Pre-validate and fetch workspace/access strategy once
+	var ws *workspacev1alpha1.Workspace
+	var accessStrategy *workspacev1alpha1.WorkspaceAccessStrategy
+
+	switch req.Spec.WorkspaceConnectionType {
+	case connectionv1alpha1.ConnectionTypeWebUI:
+		var statusCode int
+		ws, accessStrategy, statusCode, err = s.validateWebUIConnection(namespace, req.Spec.WorkspaceName, logger)
+		if err != nil {
 			WriteKubernetesError(w, statusCode, err.Error())
 			return
 		}
-	}
-
-	// Pre-validate VSCode connections before attempting to generate URL
-	if req.Spec.WorkspaceConnectionType == connectionv1alpha1.ConnectionTypeVSCodeRemote {
-		if statusCode, err := s.validateVSCodeConnection(namespace, req.Spec.WorkspaceName); err != nil {
+	case connectionv1alpha1.ConnectionTypeVSCodeRemote:
+		var statusCode int
+		ws, accessStrategy, statusCode, err = s.validateVSCodeConnection(namespace, req.Spec.WorkspaceName)
+		if err != nil {
 			WriteKubernetesError(w, statusCode, err.Error())
 			return
 		}
@@ -320,9 +316,9 @@ func (s *ExtensionServer) HandleConnectionCreate(w http.ResponseWriter, r *http.
 	var responseType, responseURL string
 	switch req.Spec.WorkspaceConnectionType {
 	case connectionv1alpha1.ConnectionTypeVSCodeRemote:
-		responseType, responseURL, err = s.generateVSCodeURL(r, req.Spec.WorkspaceName, namespace)
+		responseType, responseURL, err = s.generateVSCodeURL(r, ws, accessStrategy, namespace)
 	case connectionv1alpha1.ConnectionTypeWebUI:
-		responseType, responseURL, err = s.generateWebUIBearerTokenURL(r, req.Spec.WorkspaceName, namespace)
+		responseType, responseURL, err = s.generateWebUIBearerTokenURL(r, ws, accessStrategy)
 	default:
 		logger.Error(nil, "Invalid workspace connection type", "connectionType", req.Spec.WorkspaceConnectionType)
 		WriteKubernetesError(w, http.StatusBadRequest, "Invalid workspace connection type")
@@ -379,38 +375,27 @@ func validateWorkspaceConnectionRequest(req *connectionv1alpha1.WorkspaceConnect
 
 // generateVSCodeURL generates a VSCode connection URL using SSM remote access strategy
 // Returns (connectionType, connectionURL, error)
-func (s *ExtensionServer) generateVSCodeURL(r *http.Request, workspaceName, namespace string) (string, string, error) {
+func (s *ExtensionServer) generateVSCodeURL(r *http.Request, ws *workspacev1alpha1.Workspace, accessStrategy *workspacev1alpha1.WorkspaceAccessStrategy, namespace string) (string, string, error) {
 	logger := ctrl.Log.WithName("vscode-handler")
 
-	// Get cluster ID from config (already validated earlier)
-	clusterId := s.config.ClusterId
-
-	// Get workspace
-	ws, err := s.getWorkspace(namespace, workspaceName)
-	if err != nil {
-		logger.Error(err, "Failed to get workspace", "workspaceName", workspaceName)
-		return "", "", err
-	}
-
-	// Get access strategy
-	accessStrategy, err := s.getAccessStrategy(ws)
-	if err != nil {
-		logger.Error(err, "Failed to get access strategy", "workspaceName", workspaceName)
-		return "", "", err
-	}
-
+	// Validate inputs
 	if accessStrategy == nil {
 		return "", "", fmt.Errorf("no access strategy configured for workspace")
 	}
 
+	// Get cluster ID from config (already validated earlier)
+	clusterId := s.config.ClusterId
+
+	// Workspace and access strategy already validated and fetched
+
 	// Get pod UID from workspace name using existing k8sClient
-	podUID, err := workspace.GetPodUIDFromWorkspaceName(s.k8sClient, workspaceName)
+	podUID, err := workspace.GetPodUIDFromWorkspaceName(s.k8sClient, ws.Name)
 	if err != nil {
-		logger.Error(err, "Failed to get pod UID", "workspaceName", workspaceName)
+		logger.Error(err, "Failed to get pod UID", "workspaceName", ws.Name)
 		return "", "", err
 	}
 
-	logger.Info("Found pod UID for workspace", "workspaceName", workspaceName, "podUID", podUID)
+	logger.Info("Found pod UID for workspace", "workspaceName", ws.Name, "podUID", podUID)
 
 	// Create SSM remote access strategy
 	ssmStrategy, err := newSSMRemoteAccessStrategy(nil, &noOpPodExec{})
@@ -419,7 +404,7 @@ func (s *ExtensionServer) generateVSCodeURL(r *http.Request, workspaceName, name
 	}
 
 	// Generate VSCode connection URL using SSM strategy with access strategy
-	connectionURL, err := ssmStrategy.GenerateVSCodeConnectionURL(r.Context(), workspaceName, namespace, podUID, clusterId, accessStrategy)
+	connectionURL, err := ssmStrategy.GenerateVSCodeConnectionURL(r.Context(), ws.Name, namespace, podUID, clusterId, accessStrategy)
 	if err != nil {
 		return "", "", err
 	}

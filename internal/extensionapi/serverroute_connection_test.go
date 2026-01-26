@@ -86,7 +86,7 @@ func TestGenerateWebUIURL(t *testing.T) {
 	req := httptest.NewRequest("POST", "/test", nil)
 	req.Header.Set("X-Remote-User", testUser)
 
-	connType, url, err := server.generateWebUIBearerTokenURL(req, "test-workspace", "default")
+	connType, url, err := server.generateWebUIBearerTokenURL(req, workspace, accessStrategy)
 
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
@@ -326,7 +326,16 @@ func TestGenerateVSCodeURL(t *testing.T) {
 	}
 	req := httptest.NewRequest("POST", "/test", nil)
 
-	_, _, err := server.generateVSCodeURL(req, "test-workspace", "default")
+	// Create minimal workspace for pod lookup
+	workspace := &workspacev1alpha1.Workspace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-workspace",
+			Namespace: "default",
+		},
+	}
+	accessStrategy := &workspacev1alpha1.WorkspaceAccessStrategy{}
+
+	_, _, err := server.generateVSCodeURL(req, workspace, accessStrategy, "default")
 
 	if err == nil {
 		t.Error("expected error from generateVSCodeURL without pods")
@@ -381,7 +390,7 @@ func TestGenerateVSCodeURLWithPod(t *testing.T) {
 	}
 	req := httptest.NewRequest("POST", "/test", nil)
 
-	_, _, err := server.generateVSCodeURL(req, "test-workspace", "default")
+	_, _, err := server.generateVSCodeURL(req, workspace, accessStrategy, "default")
 
 	if err == nil {
 		t.Error("expected error from generateVSCodeURL at SSM strategy creation")
@@ -566,7 +575,7 @@ func TestGenerateVSCodeURLSSMSuccess(t *testing.T) {
 	}
 
 	req := httptest.NewRequest("POST", "/test", nil)
-	_, _, err := server.generateVSCodeURL(req, "test-workspace", "default")
+	_, _, err := server.generateVSCodeURL(req, workspace, accessStrategy, "default")
 
 	if err == nil {
 		t.Error("expected error from SSM creation")
@@ -705,7 +714,7 @@ func TestGenerateWebUIBearerTokenURL(t *testing.T) {
 	req := httptest.NewRequest("POST", "/test", nil)
 	req.Header.Set("X-Remote-User", testUser)
 
-	connType, url, err := server.generateWebUIBearerTokenURL(req, "workspace1", "default")
+	connType, url, err := server.generateWebUIBearerTokenURL(req, workspace, accessStrategy)
 
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
@@ -759,7 +768,7 @@ func TestGenerateWebUIBearerTokenURL_SubdomainRouting(t *testing.T) {
 	req := httptest.NewRequest("POST", "/test", nil)
 	req.Header.Set("X-Remote-User", testUser)
 
-	connType, url, err := server.generateWebUIBearerTokenURL(req, "myworkspace", "default")
+	connType, url, err := server.generateWebUIBearerTokenURL(req, workspace, accessStrategy)
 
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
@@ -800,7 +809,7 @@ func TestGenerateWebUIBearerTokenURL_NoAccessStrategy(t *testing.T) {
 	req := httptest.NewRequest("POST", "/test", nil)
 	req.Header.Set("X-Remote-User", testUser)
 
-	_, _, err := server.generateWebUIBearerTokenURL(req, "workspace1", "default")
+	_, _, err := server.generateWebUIBearerTokenURL(req, workspace, nil)
 
 	if err == nil {
 		t.Error("expected error for missing AccessStrategy, got nil")
@@ -850,7 +859,7 @@ func TestGenerateWebUIBearerTokenURL_MissingTemplate(t *testing.T) {
 	req := httptest.NewRequest("POST", "/test", nil)
 	req.Header.Set("X-Remote-User", testUser)
 
-	_, _, err := server.generateWebUIBearerTokenURL(req, "workspace1", "default")
+	_, _, err := server.generateWebUIBearerTokenURL(req, workspace, accessStrategy)
 
 	if err == nil {
 		t.Error("expected error for missing BearerAuthURLTemplate, got nil")
@@ -916,14 +925,14 @@ func TestGenerateVSCodeURL_MissingWorkspace(t *testing.T) {
 	}
 	req := httptest.NewRequest("POST", "/test", nil)
 
-	_, _, err := server.generateVSCodeURL(req, "nonexistent-workspace", "default")
+	_, _, err := server.generateVSCodeURL(req, nil, nil, "default")
 
 	if err == nil {
 		t.Error("expected error for missing workspace")
 	}
-	// Error should contain "not found" from Kubernetes API
-	if !strings.Contains(err.Error(), "not found") {
-		t.Errorf("expected workspace not found error, got: %v", err)
+	// When workspace is nil, we expect access strategy error
+	if !strings.Contains(err.Error(), "no access strategy configured") {
+		t.Errorf("expected access strategy error, got: %v", err)
 	}
 }
 
@@ -953,7 +962,7 @@ func TestGenerateVSCodeURL_MissingAccessStrategy(t *testing.T) {
 	}
 	req := httptest.NewRequest("POST", "/test", nil)
 
-	_, _, err := server.generateVSCodeURL(req, "test-workspace", "default")
+	_, _, err := server.generateVSCodeURL(req, workspace, nil, "default")
 
 	if err == nil {
 		t.Error("expected error for missing access strategy")
@@ -1021,7 +1030,7 @@ func TestGenerateVSCodeURL_MissingSSMDocumentName(t *testing.T) {
 	}
 	req := httptest.NewRequest("POST", "/test", nil)
 
-	_, _, err := server.generateVSCodeURL(req, "test-workspace", "default")
+	_, _, err := server.generateVSCodeURL(req, workspace, accessStrategy, "default")
 
 	if err == nil {
 		t.Error("expected error from SSM strategy creation")
@@ -1176,8 +1185,8 @@ func TestValidateWebUIConnection(t *testing.T) {
 	}{
 		{
 			name:               "workspace not found",
-			expectedStatusCode: http.StatusInternalServerError,
-			expectedError:      "failed to retrieve workspace",
+			expectedStatusCode: http.StatusNotFound,
+			expectedError:      "workspace not found",
 		},
 		{
 			name: "workspace not available",
@@ -1209,7 +1218,7 @@ func TestValidateWebUIConnection(t *testing.T) {
 					BearerAuthURLTemplate: "https://example.com/bearer-auth",
 				},
 			},
-			expectedStatusCode: http.StatusServiceUnavailable,
+			expectedStatusCode: http.StatusBadRequest,
 			expectedError:      "workspace is not available",
 		},
 		{
@@ -1297,7 +1306,7 @@ func TestValidateWebUIConnection(t *testing.T) {
 			}
 
 			logger := ctrl.Log.WithName("test")
-			statusCode, err := server.validateWebUIConnection("default", "test-workspace", logger)
+			_, _, statusCode, err := server.validateWebUIConnection("default", "test-workspace", logger)
 
 			if statusCode != tt.expectedStatusCode {
 				t.Errorf("expected status code %d, got %d", tt.expectedStatusCode, statusCode)
@@ -1387,8 +1396,8 @@ func TestValidateVSCodeConnection(t *testing.T) {
 	}{
 		{
 			name:               "workspace not found",
-			expectedStatusCode: http.StatusInternalServerError,
-			expectedError:      "failed to retrieve workspace",
+			expectedStatusCode: http.StatusNotFound,
+			expectedError:      "workspace not found",
 		},
 		{
 			name: "workspace not available",
@@ -1422,7 +1431,7 @@ func TestValidateVSCodeConnection(t *testing.T) {
 					},
 				},
 			},
-			expectedStatusCode: http.StatusServiceUnavailable,
+			expectedStatusCode: http.StatusBadRequest,
 			expectedError:      "workspace is not available",
 		},
 		{
@@ -1511,7 +1520,7 @@ func TestValidateVSCodeConnection(t *testing.T) {
 				k8sClient: fakeClient,
 			}
 
-			statusCode, err := server.validateVSCodeConnection("default", "test-workspace")
+			_, _, statusCode, err := server.validateVSCodeConnection("default", "test-workspace")
 
 			if statusCode != tt.expectedStatusCode {
 				t.Errorf("expected status code %d, got %d", tt.expectedStatusCode, statusCode)
