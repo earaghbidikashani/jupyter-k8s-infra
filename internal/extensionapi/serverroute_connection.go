@@ -23,6 +23,7 @@ import (
 	"github.com/jupyter-infra/jupyter-k8s/internal/jwt"
 	"github.com/jupyter-infra/jupyter-k8s/internal/workspace"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 )
@@ -62,12 +63,20 @@ func (s *ExtensionServer) validateWebUIConnection(namespace, workspaceName strin
 	ws, err := s.getWorkspace(namespace, workspaceName)
 	if err != nil {
 		logger.Error(err, "Failed to get workspace for WebUI validation", "workspaceName", workspaceName)
+
+		if errors.IsNotFound(err) {
+			return http.StatusNotFound, fmt.Errorf("workspace not found")
+		}
 		return http.StatusInternalServerError, fmt.Errorf("failed to retrieve workspace")
 	}
 
 	accessStrategy, err := s.getAccessStrategy(ws)
 	if err != nil {
 		logger.Error(err, "Failed to get access strategy for WebUI validation", "workspaceName", workspaceName)
+
+		if errors.IsNotFound(err) {
+			return http.StatusNotFound, fmt.Errorf("access strategy not found")
+		}
 		return http.StatusInternalServerError, fmt.Errorf("failed to retrieve access strategy")
 	}
 
@@ -84,20 +93,10 @@ func (s *ExtensionServer) validateWebUIConnection(namespace, workspaceName strin
 		logger.Info("WebUI connection rejected: workspace not available",
 			"workspaceName", workspaceName,
 			"namespace", namespace)
-		return http.StatusServiceUnavailable, fmt.Errorf("workspace is not available. Check workspace status for details")
+		return http.StatusBadRequest, fmt.Errorf("workspace is not available. Check workspace status for details")
 	}
 
 	return 0, nil
-}
-
-// isWorkspaceAvailable checks if the workspace has the Available condition set to True.
-func isWorkspaceAvailable(ws *workspacev1alpha1.Workspace) bool {
-	for _, condition := range ws.Status.Conditions {
-		if condition.Type == "Available" && condition.Status == metav1.ConditionTrue {
-			return true
-		}
-	}
-	return false
 }
 
 // hasSSMConfigured checks if SSM remote access is configured in the access strategy.
@@ -120,6 +119,10 @@ func (s *ExtensionServer) validateVSCodeConnection(namespace, workspaceName stri
 	ws, err := s.getWorkspace(namespace, workspaceName)
 	if err != nil {
 		logger.Error(err, "Failed to get workspace for VSCode validation", "workspaceName", workspaceName)
+
+		if errors.IsNotFound(err) {
+			return http.StatusNotFound, fmt.Errorf("workspace not found")
+		}
 		return http.StatusInternalServerError, fmt.Errorf("failed to retrieve workspace")
 	}
 
@@ -127,13 +130,17 @@ func (s *ExtensionServer) validateVSCodeConnection(namespace, workspaceName stri
 		logger.Info("VSCode connection rejected: workspace not available",
 			"workspaceName", workspaceName,
 			"namespace", namespace)
-		return http.StatusServiceUnavailable, fmt.Errorf("workspace is not available. Check workspace status for details")
+		return http.StatusBadRequest, fmt.Errorf("workspace is not available. Check workspace status for details")
 	}
 
 	// Check Access strategy exists and has SSM configuration
 	accessStrategy, err := s.getAccessStrategy(ws)
 	if err != nil {
 		logger.Error(err, "Failed to get access strategy for VSCode validation", "workspaceName", workspaceName)
+
+		if errors.IsNotFound(err) {
+			return http.StatusNotFound, fmt.Errorf("access strategy not found")
+		}
 		return http.StatusInternalServerError, fmt.Errorf("failed to retrieve access strategy")
 	}
 

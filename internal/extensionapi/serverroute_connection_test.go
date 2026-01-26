@@ -1319,62 +1319,6 @@ func TestValidateWebUIConnection(t *testing.T) {
 }
 
 // TestIsWorkspaceAvailable tests the isWorkspaceAvailable helper function
-func TestIsWorkspaceAvailable(t *testing.T) {
-	tests := []struct {
-		name      string
-		workspace *workspacev1alpha1.Workspace
-		expected  bool
-	}{
-		{
-			name: "no conditions",
-			workspace: &workspacev1alpha1.Workspace{
-				Status: workspacev1alpha1.WorkspaceStatus{
-					Conditions: []metav1.Condition{},
-				},
-			},
-			expected: false,
-		},
-		{
-			name: "Available condition is False",
-			workspace: &workspacev1alpha1.Workspace{
-				Status: workspacev1alpha1.WorkspaceStatus{
-					Conditions: []metav1.Condition{
-						{
-							Type:   "Available",
-							Status: metav1.ConditionFalse,
-						},
-					},
-				},
-			},
-			expected: false,
-		},
-		{
-			name: "Available condition is True",
-			workspace: &workspacev1alpha1.Workspace{
-				Status: workspacev1alpha1.WorkspaceStatus{
-					Conditions: []metav1.Condition{
-						{
-							Type:   "Available",
-							Status: metav1.ConditionTrue,
-						},
-					},
-				},
-			},
-			expected: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := isWorkspaceAvailable(tt.workspace)
-			if result != tt.expected {
-				t.Errorf("expected %v, got %v", tt.expected, result)
-			}
-		})
-	}
-}
-
-// TestHasSSMConfigured tests the hasSSMConfigured helper function
 func TestHasSSMConfigured(t *testing.T) {
 	tests := []struct {
 		name           string
