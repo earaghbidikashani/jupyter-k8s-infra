@@ -1353,7 +1353,7 @@ func TestHasSSMConfigured(t *testing.T) {
 			accessStrategy: &workspacev1alpha1.WorkspaceAccessStrategy{
 				Spec: workspacev1alpha1.WorkspaceAccessStrategySpec{
 					CreateConnectionContext: map[string]string{
-						"SSMDocumentName": "",
+						"ssmDocumentName": "",
 					},
 				},
 			},
@@ -1364,7 +1364,7 @@ func TestHasSSMConfigured(t *testing.T) {
 			accessStrategy: &workspacev1alpha1.WorkspaceAccessStrategy{
 				Spec: workspacev1alpha1.WorkspaceAccessStrategySpec{
 					CreateConnectionContext: map[string]string{
-						"SSMDocumentName": "my-ssm-document",
+						"ssmDocumentName": "my-ssm-document",
 					},
 				},
 			},
@@ -1495,7 +1495,7 @@ func TestValidateVSCodeConnection(t *testing.T) {
 				},
 				Spec: workspacev1alpha1.WorkspaceAccessStrategySpec{
 					CreateConnectionContext: map[string]string{
-						"SSMDocumentName": "my-ssm-document",
+						"ssmDocumentName": "my-ssm-document",
 					},
 				},
 			},
