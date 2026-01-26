@@ -70,6 +70,7 @@ func (s *ExtensionServer) validateWebUIConnection(namespace, workspaceName strin
 		return nil, nil, http.StatusInternalServerError, fmt.Errorf("failed to retrieve workspace")
 	}
 
+	// AccessStrategy should exist because the controller prevents deletion while workspaces reference it
 	accessStrategy, err := s.getAccessStrategy(ws)
 	if err != nil {
 		logger.Error(err, "Failed to get access strategy for WebUI validation", "workspaceName", workspaceName)
@@ -77,7 +78,7 @@ func (s *ExtensionServer) validateWebUIConnection(namespace, workspaceName strin
 		if errors.IsNotFound(err) {
 			return nil, nil, http.StatusNotFound, fmt.Errorf("access strategy not found")
 		}
-		return nil, nil, http.StatusInternalServerError, fmt.Errorf("failed to retrieve access strategy")
+		return nil, nil, http.StatusInternalServerError, fmt.Errorf("failed to retrieve workspace's resources")
 	}
 
 	// Check 1: WebUI is enabled via BearerAuthURLTemplate
@@ -85,7 +86,7 @@ func (s *ExtensionServer) validateWebUIConnection(namespace, workspaceName strin
 		logger.Info("WebUI connection rejected: WebUI not enabled for workspace",
 			"workspaceName", workspaceName,
 			"namespace", namespace)
-		return nil, nil, http.StatusBadRequest, fmt.Errorf("web browser access is not enabled for this workspace. Use a remote connection or contact your administrator")
+		return nil, nil, http.StatusBadRequest, fmt.Errorf("web browser access is not enabled for this workspace")
 	}
 
 	// Check 2: Workspace is available
@@ -133,7 +134,7 @@ func (s *ExtensionServer) validateVSCodeConnection(namespace, workspaceName stri
 		return nil, nil, http.StatusBadRequest, fmt.Errorf("workspace is not available. Check workspace status for details")
 	}
 
-	// Check Access strategy exists and has SSM configuration
+	// AccessStrategy should exist because the controller prevents deletion while workspaces reference it
 	accessStrategy, err := s.getAccessStrategy(ws)
 	if err != nil {
 		logger.Error(err, "Failed to get access strategy for VSCode validation", "workspaceName", workspaceName)
@@ -141,14 +142,14 @@ func (s *ExtensionServer) validateVSCodeConnection(namespace, workspaceName stri
 		if errors.IsNotFound(err) {
 			return nil, nil, http.StatusNotFound, fmt.Errorf("access strategy not found")
 		}
-		return nil, nil, http.StatusInternalServerError, fmt.Errorf("failed to retrieve access strategy")
+		return nil, nil, http.StatusInternalServerError, fmt.Errorf("failed to retrieve workspace's resources")
 	}
 
 	if !hasSSMConfigured(accessStrategy) {
 		logger.Info("VSCode connection rejected: SSM not configured",
 			"workspaceName", workspaceName,
 			"namespace", namespace)
-		return nil, nil, http.StatusBadRequest, fmt.Errorf("remote connection is not configured for this workspace. Contact your administrator")
+		return nil, nil, http.StatusBadRequest, fmt.Errorf("remote connection is not configured for this workspace")
 	}
 
 	return ws, accessStrategy, 0, nil
