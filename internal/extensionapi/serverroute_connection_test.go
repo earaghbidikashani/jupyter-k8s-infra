@@ -475,7 +475,7 @@ func TestCheckWorkspaceAuthorizationMissingUser(t *testing.T) {
 	// Create request without user headers
 	req := httptest.NewRequest("POST", "/test", nil)
 
-	result, err := server.checkWorkspaceAuthorization(req, "test-workspace", "default")
+	_, result, err := server.checkWorkspaceAuthorization(req, "test-workspace", "default")
 
 	if err == nil {
 		t.Error("expected error when user headers are missing")
@@ -1184,11 +1184,6 @@ func TestValidateWebUIConnection(t *testing.T) {
 		expectedError      string
 	}{
 		{
-			name:               "workspace not found",
-			expectedStatusCode: http.StatusNotFound,
-			expectedError:      "workspace not found",
-		},
-		{
 			name: "workspace not available",
 			workspace: &workspacev1alpha1.Workspace{
 				ObjectMeta: metav1.ObjectMeta{
@@ -1306,7 +1301,7 @@ func TestValidateWebUIConnection(t *testing.T) {
 			}
 
 			logger := ctrl.Log.WithName("test")
-			_, _, statusCode, err := server.validateWebUIConnection("default", "test-workspace", logger)
+			_, statusCode, err := server.validateWebUIConnection(tt.workspace, logger)
 
 			if statusCode != tt.expectedStatusCode {
 				t.Errorf("expected status code %d, got %d", tt.expectedStatusCode, statusCode)
@@ -1394,11 +1389,6 @@ func TestValidateVSCodeConnection(t *testing.T) {
 		expectedStatusCode int
 		expectedError      string
 	}{
-		{
-			name:               "workspace not found",
-			expectedStatusCode: http.StatusNotFound,
-			expectedError:      "workspace not found",
-		},
 		{
 			name: "workspace not available",
 			workspace: &workspacev1alpha1.Workspace{
@@ -1520,7 +1510,7 @@ func TestValidateVSCodeConnection(t *testing.T) {
 				k8sClient: fakeClient,
 			}
 
-			_, _, statusCode, err := server.validateVSCodeConnection("default", "test-workspace")
+			_, statusCode, err := server.validateVSCodeConnection(tt.workspace)
 
 			if statusCode != tt.expectedStatusCode {
 				t.Errorf("expected status code %d, got %d", tt.expectedStatusCode, statusCode)

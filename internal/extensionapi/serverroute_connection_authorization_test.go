@@ -47,7 +47,7 @@ func TestCheckWorkspaceAuthorization_PublicWorkspace(t *testing.T) {
 	ctx := request.WithUser(req.Context(), userInfo)
 	req = req.WithContext(ctx)
 
-	result, err := server.checkWorkspaceAuthorization(req, "public-workspace", "default")
+	_, result, err := server.checkWorkspaceAuthorization(req, "public-workspace", "default")
 
 	assert.NoError(t, err)
 	assert.True(t, result.Allowed)
@@ -79,7 +79,7 @@ func TestCheckWorkspaceAuthorization_PrivateWorkspace_SameUser(t *testing.T) {
 	ctx := request.WithUser(req.Context(), userInfo)
 	req = req.WithContext(ctx)
 
-	result, err := server.checkWorkspaceAuthorization(req, "private-workspace", "default")
+	_, result, err := server.checkWorkspaceAuthorization(req, "private-workspace", "default")
 
 	assert.NoError(t, err)
 	assert.True(t, result.Allowed)
@@ -111,7 +111,7 @@ func TestCheckWorkspaceAuthorization_PrivateWorkspace_DifferentUser(t *testing.T
 	ctx := request.WithUser(req.Context(), userInfo)
 	req = req.WithContext(ctx)
 
-	result, err := server.checkWorkspaceAuthorization(req, "private-workspace", "default")
+	_, result, err := server.checkWorkspaceAuthorization(req, "private-workspace", "default")
 
 	assert.NoError(t, err)
 	assert.False(t, result.Allowed)
@@ -129,7 +129,7 @@ func TestCheckWorkspaceAuthorization_WorkspaceNotFound(t *testing.T) {
 	userInfo := &user.DefaultInfo{Name: "test-user"}
 	ctx := request.WithUser(req.Context(), userInfo)
 	req = req.WithContext(ctx)
-	result, err := server.checkWorkspaceAuthorization(req, "non-existent", "default")
+	_, result, err := server.checkWorkspaceAuthorization(req, "non-existent", "default")
 
 	assert.NoError(t, err)
 	assert.False(t, result.Allowed)

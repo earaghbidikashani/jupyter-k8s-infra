@@ -64,7 +64,7 @@ var _ = Describe("WorkspaceAdmission", func() {
 			Expect(k8sClient.Create(context.Background(), workspace)).To(Succeed())
 
 			// Call the function under test
-			result, err := server.CheckWorkspaceAccess(testNamespace, testWorkspaceName, testUsername, &logger)
+			_, result, err := server.CheckWorkspaceAccess(testNamespace, testWorkspaceName, testUsername, &logger)
 
 			// Check expectations
 			Expect(err).NotTo(HaveOccurred())
@@ -77,7 +77,7 @@ var _ = Describe("WorkspaceAdmission", func() {
 
 		It("Should return allowed=false, notFound=true if Workspace cannot be found", func() {
 			// Call with non-existent workspace
-			result, err := server.CheckWorkspaceAccess(testNamespace, "non-existent-workspace", testUsername, &logger)
+			_, result, err := server.CheckWorkspaceAccess(testNamespace, "non-existent-workspace", testUsername, &logger)
 
 			// Check expectations
 			Expect(err).NotTo(HaveOccurred())
@@ -101,7 +101,7 @@ var _ = Describe("WorkspaceAdmission", func() {
 			Expect(k8sClient.Create(context.Background(), workspace)).To(Succeed())
 
 			// Call the function
-			result, err := server.CheckWorkspaceAccess(testNamespace, testWorkspaceName, testUsername, &logger)
+			_, result, err := server.CheckWorkspaceAccess(testNamespace, testWorkspaceName, testUsername, &logger)
 
 			// Check expectations
 			Expect(err).NotTo(HaveOccurred())
@@ -129,7 +129,7 @@ var _ = Describe("WorkspaceAdmission", func() {
 			Expect(k8sClient.Create(context.Background(), workspace)).To(Succeed())
 
 			// Call the function
-			result, err := server.CheckWorkspaceAccess(testNamespace, testWorkspaceName, testUsername, &logger)
+			_, result, err := server.CheckWorkspaceAccess(testNamespace, testWorkspaceName, testUsername, &logger)
 
 			// Check expectations
 			Expect(err).NotTo(HaveOccurred())
@@ -158,7 +158,7 @@ var _ = Describe("WorkspaceAdmission", func() {
 			Expect(k8sClient.Create(context.Background(), workspace)).To(Succeed())
 
 			// Call the function
-			result, err := server.CheckWorkspaceAccess(testNamespace, testWorkspaceName, testUsername, &logger)
+			_, result, err := server.CheckWorkspaceAccess(testNamespace, testWorkspaceName, testUsername, &logger)
 
 			// Check expectations
 			Expect(err).NotTo(HaveOccurred())
@@ -183,7 +183,7 @@ var _ = Describe("WorkspaceAdmission", func() {
 			}
 
 			// Call the function
-			result, err := errorServer.CheckWorkspaceAccess(testNamespace, testWorkspaceName, testUsername, &logger)
+			_, result, err := errorServer.CheckWorkspaceAccess(testNamespace, testWorkspaceName, testUsername, &logger)
 
 			// Check expectations
 			Expect(err).To(HaveOccurred())
