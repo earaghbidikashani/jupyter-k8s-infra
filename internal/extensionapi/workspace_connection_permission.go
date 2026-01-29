@@ -49,7 +49,7 @@ func (s *ExtensionServer) CheckWorkspaceConnectionPermission(
 	}
 
 	// Step 2: Check workspace access
-	workspaceResult, err := s.CheckWorkspaceAccess(namespace, workspaceName, username, logger)
+	_, workspaceResult, err := s.CheckWorkspaceAccess(namespace, workspaceName, username, logger)
 	if err != nil {
 		logger.Error(err, "Workspace access check failed with error")
 		return nil, err
