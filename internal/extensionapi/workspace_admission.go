@@ -73,7 +73,7 @@ func (s *ExtensionServer) CheckWorkspaceAccess(
 		}
 
 		logger.Error(err, "Failed to get workspace")
-		return nil, nil, fmt.Errorf("failed to get workspace: %w", err)
+		return nil, nil, fmt.Errorf("internal server error")
 	}
 
 	// Check access type

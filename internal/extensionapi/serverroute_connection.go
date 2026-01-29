@@ -70,7 +70,7 @@ func (s *ExtensionServer) validateWebUIConnection(ws *workspacev1alpha1.Workspac
 		if errors.IsNotFound(err) {
 			return nil, http.StatusNotFound, fmt.Errorf("access strategy not found")
 		}
-		return nil, http.StatusInternalServerError, fmt.Errorf("failed to retrieve workspace's resources")
+		return nil, http.StatusInternalServerError, fmt.Errorf("internal server error")
 	}
 
 	// Check 1: WebUI is enabled via BearerAuthURLTemplate
@@ -125,7 +125,7 @@ func (s *ExtensionServer) validateVSCodeConnection(ws *workspacev1alpha1.Workspa
 		if errors.IsNotFound(err) {
 			return nil, http.StatusNotFound, fmt.Errorf("access strategy not found")
 		}
-		return nil, http.StatusInternalServerError, fmt.Errorf("failed to retrieve workspace's resources")
+		return nil, http.StatusInternalServerError, fmt.Errorf("internal server error")
 	}
 
 	if !hasSSMConfigured(accessStrategy) {

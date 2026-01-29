@@ -187,7 +187,7 @@ var _ = Describe("WorkspaceAdmission", func() {
 
 			// Check expectations
 			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("simulated client error"))
+			Expect(err.Error()).To(Equal("internal server error"))
 			Expect(result).To(BeNil())
 		})
 	})
