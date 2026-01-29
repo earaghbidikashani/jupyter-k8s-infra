@@ -58,10 +58,8 @@ func isWorkspaceAvailable(ws *workspacev1alpha1.Workspace) bool {
 }
 
 // validateWebUIConnection validates that a workspace is ready for WebUI connections.
-// Returns (accessStrategy, statusCode, error). If validation passes, returns (as, 0, nil).
+// Returns (accessStrategy, statusCode, error).
 func (s *ExtensionServer) validateWebUIConnection(ws *workspacev1alpha1.Workspace, logger logr.Logger) (*workspacev1alpha1.WorkspaceAccessStrategy, int, error) {
-	// Workspace already provided from authZ check, no need to fetch
-
 	// AccessStrategy should exist because the controller prevents deletion while workspaces reference it
 	accessStrategy, err := s.getAccessStrategy(ws)
 	if err != nil {
@@ -153,8 +151,6 @@ func (s *ExtensionServer) generateWebUIBearerTokenURL(r *http.Request, ws *works
 	if accessStrategy.Spec.BearerAuthURLTemplate == "" {
 		return "", "", fmt.Errorf("BearerAuthURLTemplate not configured in AccessStrategy")
 	}
-
-	// Workspace and access strategy already validated and fetched
 
 	// Create signer based on access strategy
 	signer, err := s.signerFactory.CreateSigner(accessStrategy)
@@ -257,7 +253,7 @@ func (s *ExtensionServer) HandleConnectionCreate(w http.ResponseWriter, r *http.
 		"workspaceName", req.Spec.WorkspaceName,
 		"connectionType", req.Spec.WorkspaceConnectionType)
 
-	// Check authorization for private workspaces (fetches workspace once)
+	// Check authorization for private workspaces
 	ws, result, err := s.checkWorkspaceAuthorization(r, req.Spec.WorkspaceName, namespace)
 	if err != nil {
 		logger.Error(err, "Authorization failed", "workspaceName", req.Spec.WorkspaceName)
@@ -275,7 +271,7 @@ func (s *ExtensionServer) HandleConnectionCreate(w http.ResponseWriter, r *http.
 		return
 	}
 
-	// Validate connection readiness and fetch access strategy (workspace already fetched in authZ)
+	// Validate connection readiness and fetch access strategy
 	var accessStrategy *workspacev1alpha1.WorkspaceAccessStrategy
 
 	switch req.Spec.WorkspaceConnectionType {
@@ -366,10 +362,7 @@ func (s *ExtensionServer) generateVSCodeURL(r *http.Request, ws *workspacev1alph
 		return "", "", fmt.Errorf("no access strategy configured for workspace")
 	}
 
-	// Get cluster ID from config (already validated earlier)
 	clusterId := s.config.ClusterId
-
-	// Workspace and access strategy already validated and fetched
 
 	// Get pod UID from workspace name using existing k8sClient
 	podUID, err := workspace.GetPodUIDFromWorkspaceName(s.k8sClient, ws.Name)
