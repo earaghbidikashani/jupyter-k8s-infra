@@ -261,7 +261,7 @@ var _ = Describe("CheckWorkspaceConnectionPermission", func() {
 
 			Expect(response).To(BeNil())
 			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("get Workspace client error"))
+			Expect(err.Error()).To(Equal("internal server error"))
 		})
 
 		It("Should pass the Extra field to CheckRBACPermission", func() {

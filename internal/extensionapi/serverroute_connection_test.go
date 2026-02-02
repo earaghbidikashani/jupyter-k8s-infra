@@ -86,7 +86,7 @@ func TestGenerateWebUIURL(t *testing.T) {
 	req := httptest.NewRequest("POST", "/test", nil)
 	req.Header.Set("X-Remote-User", testUser)
 
-	connType, url, err := server.generateWebUIBearerTokenURL(req, "test-workspace", "default")
+	connType, url, err := server.generateWebUIBearerTokenURL(req, workspace, accessStrategy)
 
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
@@ -326,7 +326,16 @@ func TestGenerateVSCodeURL(t *testing.T) {
 	}
 	req := httptest.NewRequest("POST", "/test", nil)
 
-	_, _, err := server.generateVSCodeURL(req, "test-workspace", "default")
+	// Create minimal workspace for pod lookup
+	workspace := &workspacev1alpha1.Workspace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-workspace",
+			Namespace: "default",
+		},
+	}
+	accessStrategy := &workspacev1alpha1.WorkspaceAccessStrategy{}
+
+	_, _, err := server.generateVSCodeURL(req, workspace, accessStrategy, "default")
 
 	if err == nil {
 		t.Error("expected error from generateVSCodeURL without pods")
@@ -381,7 +390,7 @@ func TestGenerateVSCodeURLWithPod(t *testing.T) {
 	}
 	req := httptest.NewRequest("POST", "/test", nil)
 
-	_, _, err := server.generateVSCodeURL(req, "test-workspace", "default")
+	_, _, err := server.generateVSCodeURL(req, workspace, accessStrategy, "default")
 
 	if err == nil {
 		t.Error("expected error from generateVSCodeURL at SSM strategy creation")
@@ -466,7 +475,7 @@ func TestCheckWorkspaceAuthorizationMissingUser(t *testing.T) {
 	// Create request without user headers
 	req := httptest.NewRequest("POST", "/test", nil)
 
-	result, err := server.checkWorkspaceAuthorization(req, "test-workspace", "default")
+	_, result, err := server.checkWorkspaceAuthorization(req, "test-workspace", "default")
 
 	if err == nil {
 		t.Error("expected error when user headers are missing")
@@ -566,7 +575,7 @@ func TestGenerateVSCodeURLSSMSuccess(t *testing.T) {
 	}
 
 	req := httptest.NewRequest("POST", "/test", nil)
-	_, _, err := server.generateVSCodeURL(req, "test-workspace", "default")
+	_, _, err := server.generateVSCodeURL(req, workspace, accessStrategy, "default")
 
 	if err == nil {
 		t.Error("expected error from SSM creation")
@@ -705,7 +714,7 @@ func TestGenerateWebUIBearerTokenURL(t *testing.T) {
 	req := httptest.NewRequest("POST", "/test", nil)
 	req.Header.Set("X-Remote-User", testUser)
 
-	connType, url, err := server.generateWebUIBearerTokenURL(req, "workspace1", "default")
+	connType, url, err := server.generateWebUIBearerTokenURL(req, workspace, accessStrategy)
 
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
@@ -759,7 +768,7 @@ func TestGenerateWebUIBearerTokenURL_SubdomainRouting(t *testing.T) {
 	req := httptest.NewRequest("POST", "/test", nil)
 	req.Header.Set("X-Remote-User", testUser)
 
-	connType, url, err := server.generateWebUIBearerTokenURL(req, "myworkspace", "default")
+	connType, url, err := server.generateWebUIBearerTokenURL(req, workspace, accessStrategy)
 
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
@@ -800,7 +809,7 @@ func TestGenerateWebUIBearerTokenURL_NoAccessStrategy(t *testing.T) {
 	req := httptest.NewRequest("POST", "/test", nil)
 	req.Header.Set("X-Remote-User", testUser)
 
-	_, _, err := server.generateWebUIBearerTokenURL(req, "workspace1", "default")
+	_, _, err := server.generateWebUIBearerTokenURL(req, workspace, nil)
 
 	if err == nil {
 		t.Error("expected error for missing AccessStrategy, got nil")
@@ -850,7 +859,7 @@ func TestGenerateWebUIBearerTokenURL_MissingTemplate(t *testing.T) {
 	req := httptest.NewRequest("POST", "/test", nil)
 	req.Header.Set("X-Remote-User", testUser)
 
-	_, _, err := server.generateWebUIBearerTokenURL(req, "workspace1", "default")
+	_, _, err := server.generateWebUIBearerTokenURL(req, workspace, accessStrategy)
 
 	if err == nil {
 		t.Error("expected error for missing BearerAuthURLTemplate, got nil")
@@ -916,14 +925,14 @@ func TestGenerateVSCodeURL_MissingWorkspace(t *testing.T) {
 	}
 	req := httptest.NewRequest("POST", "/test", nil)
 
-	_, _, err := server.generateVSCodeURL(req, "nonexistent-workspace", "default")
+	_, _, err := server.generateVSCodeURL(req, nil, nil, "default")
 
 	if err == nil {
 		t.Error("expected error for missing workspace")
 	}
-	// Error should contain "not found" from Kubernetes API
-	if !strings.Contains(err.Error(), "not found") {
-		t.Errorf("expected workspace not found error, got: %v", err)
+	// When workspace is nil, we expect access strategy error
+	if !strings.Contains(err.Error(), "no access strategy configured") {
+		t.Errorf("expected access strategy error, got: %v", err)
 	}
 }
 
@@ -953,7 +962,7 @@ func TestGenerateVSCodeURL_MissingAccessStrategy(t *testing.T) {
 	}
 	req := httptest.NewRequest("POST", "/test", nil)
 
-	_, _, err := server.generateVSCodeURL(req, "test-workspace", "default")
+	_, _, err := server.generateVSCodeURL(req, workspace, nil, "default")
 
 	if err == nil {
 		t.Error("expected error for missing access strategy")
@@ -1021,7 +1030,7 @@ func TestGenerateVSCodeURL_MissingSSMDocumentName(t *testing.T) {
 	}
 	req := httptest.NewRequest("POST", "/test", nil)
 
-	_, _, err := server.generateVSCodeURL(req, "test-workspace", "default")
+	_, _, err := server.generateVSCodeURL(req, workspace, accessStrategy, "default")
 
 	if err == nil {
 		t.Error("expected error from SSM strategy creation")
@@ -1175,11 +1184,6 @@ func TestValidateWebUIConnection(t *testing.T) {
 		expectedError      string
 	}{
 		{
-			name:               "workspace not found",
-			expectedStatusCode: http.StatusInternalServerError,
-			expectedError:      "failed to retrieve workspace",
-		},
-		{
 			name: "workspace not available",
 			workspace: &workspacev1alpha1.Workspace{
 				ObjectMeta: metav1.ObjectMeta{
@@ -1209,7 +1213,7 @@ func TestValidateWebUIConnection(t *testing.T) {
 					BearerAuthURLTemplate: "https://example.com/bearer-auth",
 				},
 			},
-			expectedStatusCode: http.StatusServiceUnavailable,
+			expectedStatusCode: http.StatusBadRequest,
 			expectedError:      "workspace is not available",
 		},
 		{
@@ -1297,7 +1301,216 @@ func TestValidateWebUIConnection(t *testing.T) {
 			}
 
 			logger := ctrl.Log.WithName("test")
-			statusCode, err := server.validateWebUIConnection("default", "test-workspace", logger)
+			_, statusCode, err := server.validateWebUIConnection(tt.workspace, logger)
+
+			if statusCode != tt.expectedStatusCode {
+				t.Errorf("expected status code %d, got %d", tt.expectedStatusCode, statusCode)
+			}
+
+			if tt.expectedError == "" {
+				if err != nil {
+					t.Errorf("expected no error, got %v", err)
+				}
+			} else {
+				if err == nil {
+					t.Errorf("expected error containing %q, got nil", tt.expectedError)
+				} else if !strings.Contains(err.Error(), tt.expectedError) {
+					t.Errorf("expected error containing %q, got %q", tt.expectedError, err.Error())
+				}
+			}
+		})
+	}
+}
+
+// TestIsWorkspaceAvailable tests the isWorkspaceAvailable helper function
+func TestHasSSMConfigured(t *testing.T) {
+	tests := []struct {
+		name           string
+		accessStrategy *workspacev1alpha1.WorkspaceAccessStrategy
+		expected       bool
+	}{
+		{
+			name:           "nil access strategy",
+			accessStrategy: nil,
+			expected:       false,
+		},
+		{
+			name: "nil CreateConnectionContext",
+			accessStrategy: &workspacev1alpha1.WorkspaceAccessStrategy{
+				Spec: workspacev1alpha1.WorkspaceAccessStrategySpec{
+					CreateConnectionContext: nil,
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "empty SSMDocumentName",
+			accessStrategy: &workspacev1alpha1.WorkspaceAccessStrategy{
+				Spec: workspacev1alpha1.WorkspaceAccessStrategySpec{
+					CreateConnectionContext: map[string]string{
+						"ssmDocumentName": "",
+					},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "SSMDocumentName configured",
+			accessStrategy: &workspacev1alpha1.WorkspaceAccessStrategy{
+				Spec: workspacev1alpha1.WorkspaceAccessStrategySpec{
+					CreateConnectionContext: map[string]string{
+						"ssmDocumentName": "my-ssm-document",
+					},
+				},
+			},
+			expected: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := hasSSMConfigured(tt.accessStrategy)
+			if result != tt.expected {
+				t.Errorf("expected %v, got %v", tt.expected, result)
+			}
+		})
+	}
+}
+
+// TestValidateVSCodeConnection tests the validateVSCodeConnection function
+func TestValidateVSCodeConnection(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = workspacev1alpha1.AddToScheme(scheme)
+
+	tests := []struct {
+		name               string
+		workspace          *workspacev1alpha1.Workspace
+		accessStrategy     *workspacev1alpha1.WorkspaceAccessStrategy
+		expectedStatusCode int
+		expectedError      string
+	}{
+		{
+			name: "workspace not available",
+			workspace: &workspacev1alpha1.Workspace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-workspace",
+					Namespace: "default",
+				},
+				Spec: workspacev1alpha1.WorkspaceSpec{
+					AccessStrategy: &workspacev1alpha1.AccessStrategyRef{
+						Name: "test-strategy",
+					},
+				},
+				Status: workspacev1alpha1.WorkspaceStatus{
+					Conditions: []metav1.Condition{
+						{
+							Type:   "Available",
+							Status: metav1.ConditionFalse,
+						},
+					},
+				},
+			},
+			accessStrategy: &workspacev1alpha1.WorkspaceAccessStrategy{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-strategy",
+					Namespace: "default",
+				},
+				Spec: workspacev1alpha1.WorkspaceAccessStrategySpec{
+					CreateConnectionContext: map[string]string{
+						"SSMDocumentName": "my-document",
+					},
+				},
+			},
+			expectedStatusCode: http.StatusBadRequest,
+			expectedError:      "workspace is not available",
+		},
+		{
+			name: "SSM not configured",
+			workspace: &workspacev1alpha1.Workspace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-workspace",
+					Namespace: "default",
+				},
+				Spec: workspacev1alpha1.WorkspaceSpec{
+					AccessStrategy: &workspacev1alpha1.AccessStrategyRef{
+						Name: "test-strategy",
+					},
+				},
+				Status: workspacev1alpha1.WorkspaceStatus{
+					Conditions: []metav1.Condition{
+						{
+							Type:   "Available",
+							Status: metav1.ConditionTrue,
+						},
+					},
+				},
+			},
+			accessStrategy: &workspacev1alpha1.WorkspaceAccessStrategy{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-strategy",
+					Namespace: "default",
+				},
+				Spec: workspacev1alpha1.WorkspaceAccessStrategySpec{
+					CreateConnectionContext: map[string]string{},
+				},
+			},
+			expectedStatusCode: http.StatusBadRequest,
+			expectedError:      "remote connection is not configured",
+		},
+		{
+			name: "validation passes",
+			workspace: &workspacev1alpha1.Workspace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-workspace",
+					Namespace: "default",
+				},
+				Spec: workspacev1alpha1.WorkspaceSpec{
+					AccessStrategy: &workspacev1alpha1.AccessStrategyRef{
+						Name: "test-strategy",
+					},
+				},
+				Status: workspacev1alpha1.WorkspaceStatus{
+					Conditions: []metav1.Condition{
+						{
+							Type:   "Available",
+							Status: metav1.ConditionTrue,
+						},
+					},
+				},
+			},
+			accessStrategy: &workspacev1alpha1.WorkspaceAccessStrategy{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-strategy",
+					Namespace: "default",
+				},
+				Spec: workspacev1alpha1.WorkspaceAccessStrategySpec{
+					CreateConnectionContext: map[string]string{
+						"ssmDocumentName": "my-ssm-document",
+					},
+				},
+			},
+			expectedStatusCode: 0,
+			expectedError:      "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var objects []client.Object
+			if tt.workspace != nil {
+				objects = append(objects, tt.workspace)
+			}
+			if tt.accessStrategy != nil {
+				objects = append(objects, tt.accessStrategy)
+			}
+
+			fakeClient := ctrlclient.NewClientBuilder().WithScheme(scheme).WithObjects(objects...).Build()
+
+			server := &ExtensionServer{
+				k8sClient: fakeClient,
+			}
+
+			_, statusCode, err := server.validateVSCodeConnection(tt.workspace)
 
 			if statusCode != tt.expectedStatusCode {
 				t.Errorf("expected status code %d, got %d", tt.expectedStatusCode, statusCode)

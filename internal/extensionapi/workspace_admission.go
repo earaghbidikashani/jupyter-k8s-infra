@@ -12,6 +12,7 @@ import (
 
 	workspacev1alpha1 "github.com/jupyter-infra/jupyter-k8s/api/v1alpha1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	rlog "github.com/go-logr/logr"
@@ -38,6 +39,7 @@ type WorkspaceAdmissionResult struct {
 	Reason        string
 	AccessType    string
 	OwnerUsername string
+	Conditions    []metav1.Condition // Workspace status conditions for consumer decision-making
 }
 
 // CheckWorkspaceAccess checks if a user has access to a workspace based on:
@@ -48,7 +50,7 @@ func (s *ExtensionServer) CheckWorkspaceAccess(
 	workspaceName string,
 	username string,
 	logger *rlog.Logger,
-) (*WorkspaceAdmissionResult, error) {
+) (*workspacev1alpha1.Workspace, *WorkspaceAdmissionResult, error) {
 	k8sClient := s.k8sClient
 
 	// Get the workspace
@@ -60,17 +62,18 @@ func (s *ExtensionServer) CheckWorkspaceAccess(
 	); err != nil {
 		if errors.IsNotFound(err) {
 			logger.Info("Workspace was not found")
-			return &WorkspaceAdmissionResult{
+			return nil, &WorkspaceAdmissionResult{
 				Allowed:       false,
 				NotFound:      true,
 				Reason:        "Workspace not found",
 				AccessType:    "unknown",
 				OwnerUsername: getWorkspaceOwner(&workspace),
+				Conditions:    nil,
 			}, nil
 		}
 
 		logger.Error(err, "Failed to get workspace")
-		return nil, fmt.Errorf("failed to get workspace: %w", err)
+		return nil, nil, fmt.Errorf("internal server error")
 	}
 
 	// Check access type
@@ -79,12 +82,13 @@ func (s *ExtensionServer) CheckWorkspaceAccess(
 	// If public, grant access
 	if accessType == AccessTypePublic {
 		logger.Info("Granting access to public workspace")
-		return &WorkspaceAdmissionResult{
+		return &workspace, &WorkspaceAdmissionResult{
 			Allowed:       true,
 			NotFound:      false,
 			Reason:        "Workspace is public",
 			AccessType:    accessType,
 			OwnerUsername: getWorkspaceOwner(&workspace),
+			Conditions:    workspace.Status.Conditions,
 		}, nil
 	}
 
@@ -94,23 +98,25 @@ func (s *ExtensionServer) CheckWorkspaceAccess(
 	// Owner check - simple string match for now
 	if owner == username {
 		logger.Info("Granting access to workspace owner")
-		return &WorkspaceAdmissionResult{
+		return &workspace, &WorkspaceAdmissionResult{
 			Allowed:       true,
 			NotFound:      false,
 			Reason:        "User is the workspace owner",
 			AccessType:    accessType,
 			OwnerUsername: owner,
+			Conditions:    workspace.Status.Conditions,
 		}, nil
 	}
 
 	// Access denied - not public and not the owner
 	logger.Info("Denying access to private workspace")
-	return &WorkspaceAdmissionResult{
+	return &workspace, &WorkspaceAdmissionResult{
 		Allowed:       false,
 		NotFound:      false,
 		Reason:        "User is not the workspace owner",
 		AccessType:    accessType,
 		OwnerUsername: owner,
+		Conditions:    workspace.Status.Conditions,
 	}, nil
 }
 
