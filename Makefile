@@ -127,6 +127,7 @@ test: manifests generate fmt vet setup-envtest ## Run tests.
 
 # Used for automated e2e tests
 KIND_CLUSTER ?= jupyter-k8s-test-e2e
+E2E_MANAGER_IMAGE ?= jupyter.org/jupyter-k8s:v0.0.1
 
 # Used for manual development
 DEV_KIND_CLUSTER ?= jupyter-k8s-dev
@@ -135,18 +136,18 @@ DEV_KIND_CLUSTER ?= jupyter-k8s-dev
 USE_KIND ?= false
 
 .PHONY: setup-test-e2e
-setup-test-e2e: ## Set up a Kind cluster for e2e tests if it does not exist
+setup-test-e2e: ## Set up a fresh Kind cluster for e2e tests (deletes existing cluster first)
 	@command -v $(KIND) >/dev/null 2>&1 || { \
 		echo "Kind is not installed. Please install Kind manually."; \
 		exit 1; \
 	}
 	@case "$$($(KIND) get clusters)" in \
 		*"$(KIND_CLUSTER)"*) \
-			echo "Kind cluster '$(KIND_CLUSTER)' already exists. Skipping creation." ;; \
-		*) \
-			echo "Creating Kind cluster '$(KIND_CLUSTER)'..."; \
-			$(KIND) create cluster --name $(KIND_CLUSTER) ;; \
+			echo "Deleting existing Kind cluster '$(KIND_CLUSTER)' for a fresh start..."; \
+			$(KIND) delete cluster --name $(KIND_CLUSTER) ;; \
 	esac
+	@echo "Creating Kind cluster '$(KIND_CLUSTER)'..."
+	@$(KIND) create cluster --name $(KIND_CLUSTER)
 	@if ! kubectl get namespace cert-manager > /dev/null 2>&1; then \
 		echo "Installing cert-manager"; \
 		helm repo add jetstack https://charts.jetstack.io; \
@@ -427,11 +428,14 @@ load-images: docker-build build-rotator ## Build and load images into the Kind c
 	$(MAKE) -C images push-all-kind CLUSTER_NAME=$(DEV_KIND_CLUSTER) CONTAINER_TOOL=$(CONTAINER_TOOL)
 
 .PHONY: load-images-e2e
-load-images-e2e: build-rotator ## Build and load application images into the e2e test Kind cluster
-	@echo "Loading application images into e2e test cluster ${KIND_CLUSTER}..."
-	@echo "Note: Controller image is built and loaded by the e2e test suite itself"
-	@echo "Loading rotator image into e2e test cluster ${KIND_CLUSTER}..."
+load-images-e2e: build-rotator ## Build and load all images into the e2e test Kind cluster
+	@echo "Building manager image..."
+	$(CONTAINER_TOOL) build $(BUILD_OPTS) -t $(E2E_MANAGER_IMAGE) .
+	@echo "Loading images into e2e test cluster ${KIND_CLUSTER}..."
 	@mkdir -p /tmp/kind-images
+	$(CONTAINER_TOOL) save $(E2E_MANAGER_IMAGE) -o /tmp/kind-images/manager.tar
+	$(KIND) load image-archive /tmp/kind-images/manager.tar --name $(KIND_CLUSTER)
+	rm -f /tmp/kind-images/manager.tar
 	$(CONTAINER_TOOL) save docker.io/library/rotator:local -o /tmp/kind-images/rotator.tar
 	$(KIND) load image-archive /tmp/kind-images/rotator.tar --name $(KIND_CLUSTER)
 	rm -f /tmp/kind-images/rotator.tar
