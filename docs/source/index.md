@@ -22,11 +22,11 @@ A Kubernetes operator for Jupyter notebooks and interactive IDEs — managing co
 :class-row: surface
 
 :::{grid-item-card} ☸️ Kubernetes Native
-Workspaces are native Kubernetes resources. Your users access them with their Kubernetes identities and RBAC policies.
+Workspaces are native Kubernetes resources. Your users manage and access them using their Kubernetes identities and RBAC policies.
 :::
 
 :::{grid-item-card} 📓 Multi-Application Support
-Run JupyterLab, VS Code, or bring your own apps. Each workspace gets its own persistent storage and unique URL.
+Run JupyterLab, VS Code, or bring your own apps. Persistent per-user storage with optional shared volumes for team collaboration.
 :::
 
 :::{grid-item-card} 🛡️ Secure by Default
@@ -52,7 +52,7 @@ Compatible with any cloud provider via an HTTP sidecar plugin pattern. Bring you
 :hidden:
 
 getting-started/index
-core-concepts/index
+concepts/index
 applications/index
 dive-deeper/index
 integrations/index
