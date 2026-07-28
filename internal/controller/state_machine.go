@@ -237,7 +237,7 @@ func (sm *StateMachine) reconcileDesiredRunningStatus(
 
 	// Ensure service exists
 	// EnsureServiceExists internally fetches the service and returns it with current status
-	service, err := sm.resourceManager.EnsureServiceExists(ctx, workspace)
+	service, err := sm.resourceManager.EnsureServiceExists(ctx, workspace, accessStrategy)
 	if err != nil {
 		serviceErr := fmt.Errorf("failed to ensure service exists: %w", err)
 		// Update error condition
