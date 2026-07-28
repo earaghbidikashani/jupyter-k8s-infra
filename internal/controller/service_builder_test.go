@@ -159,9 +159,9 @@ var _ = Describe("ServiceBuilder sidecar ports", func() {
 
 	wsProxyContainer := func() corev1.Container {
 		return corev1.Container{
-			Name:  "ws-proxy",
+			Name:  nameWSProxy,
 			Image: "ghcr.io/jupyter-infra/workspace-websocket-proxy:v0.1.0-rc.1",
-			Ports: []corev1.ContainerPort{{Name: "ws-proxy", ContainerPort: 8080}},
+			Ports: []corev1.ContainerPort{{Name: nameWSProxy, ContainerPort: 8080}},
 		}
 	}
 
@@ -204,7 +204,7 @@ var _ = Describe("ServiceBuilder sidecar ports", func() {
 			Expect(service.Spec.Ports[0].Port).To(Equal(int32(JupyterPort)))
 
 			wsPort := service.Spec.Ports[1]
-			Expect(wsPort.Name).To(Equal("ws-proxy"))
+			Expect(wsPort.Name).To(Equal(nameWSProxy))
 			Expect(wsPort.Port).To(Equal(int32(8080)))
 			Expect(wsPort.TargetPort).To(Equal(intstr.FromInt32(8080)))
 			Expect(wsPort.Protocol).To(Equal(corev1.ProtocolTCP))
@@ -214,15 +214,15 @@ var _ = Describe("ServiceBuilder sidecar ports", func() {
 			accessStrategy := accessStrategyWithContainers(
 				wsProxyContainer(),
 				corev1.Container{
-					Name:  "metrics",
-					Ports: []corev1.ContainerPort{{Name: "metrics", ContainerPort: 9090}},
+					Name:  nameMetrics,
+					Ports: []corev1.ContainerPort{{Name: nameMetrics, ContainerPort: 9090}},
 				},
 			)
 
 			service, err := serviceBuilder.BuildService(workspace, accessStrategy)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(service.Spec.Ports).To(HaveLen(3))
-			Expect(service.Spec.Ports[2].Name).To(Equal("metrics"))
+			Expect(service.Spec.Ports[2].Name).To(Equal(nameMetrics))
 			Expect(service.Spec.Ports[2].Port).To(Equal(int32(9090)))
 		})
 
@@ -241,13 +241,13 @@ var _ = Describe("ServiceBuilder sidecar ports", func() {
 	Context("port naming", func() {
 		It("falls back to the container name when the port is unnamed", func() {
 			accessStrategy := accessStrategyWithContainers(corev1.Container{
-				Name:  "ws-proxy",
+				Name:  nameWSProxy,
 				Ports: []corev1.ContainerPort{{ContainerPort: 8080}},
 			})
 
 			service, err := serviceBuilder.BuildService(workspace, accessStrategy)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(service.Spec.Ports[1].Name).To(Equal("ws-proxy"))
+			Expect(service.Spec.Ports[1].Name).To(Equal(nameWSProxy))
 		})
 
 		// ServicePort.Name is a DNS-1123 label (up to 63 chars), and a container name is
@@ -282,8 +282,8 @@ var _ = Describe("ServiceBuilder sidecar ports", func() {
 		// derived port would make the whole Service invalid.
 		It("names every port whenever more than one is exposed", func() {
 			accessStrategy := accessStrategyWithContainers(
-				corev1.Container{Name: "ws-proxy", Ports: []corev1.ContainerPort{{ContainerPort: 8080}}},
-				corev1.Container{Name: "metrics", Ports: []corev1.ContainerPort{{ContainerPort: 9090}}},
+				corev1.Container{Name: nameWSProxy, Ports: []corev1.ContainerPort{{ContainerPort: 8080}}},
+				corev1.Container{Name: nameMetrics, Ports: []corev1.ContainerPort{{ContainerPort: 9090}}},
 			)
 
 			service, err := serviceBuilder.BuildService(workspace, accessStrategy)
@@ -378,8 +378,14 @@ var _ = Describe("ServiceBuilder sidecar ports", func() {
 	})
 })
 
-// testClusterIP is the ClusterIP the fake API server "assigns" in tests.
-const testClusterIP = "10.100.42.7"
+const (
+	// testClusterIP is the ClusterIP the fake API server "assigns" in tests.
+	testClusterIP = "10.100.42.7"
+	// nameWSProxy is the WebSocket proxy sidecar container / port name used across tests.
+	nameWSProxy = "ws-proxy"
+	// nameMetrics is a second sidecar container / port name used across tests.
+	nameMetrics = "metrics"
+)
 
 // applyAPIServerDefaults mutates a freshly built Service to look like one read back from
 // the API server, which populates these fields on create.

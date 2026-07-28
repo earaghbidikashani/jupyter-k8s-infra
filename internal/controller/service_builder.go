@@ -69,19 +69,20 @@ func (sb *ServiceBuilder) buildServiceSpec(
 	workspace *workspacev1alpha1.Workspace,
 	accessStrategy *workspacev1alpha1.WorkspaceAccessStrategy,
 ) corev1.ServiceSpec {
-	ports := []corev1.ServicePort{
-		{
-			Name:       httpScheme,
-			Port:       JupyterPort,
-			TargetPort: intstr.FromInt(JupyterPort),
-			Protocol:   corev1.ProtocolTCP,
-		},
-	}
+	sidecarPorts := sidecarServicePorts(accessStrategy)
+	ports := make([]corev1.ServicePort, 0, 1+len(sidecarPorts))
+	ports = append(ports, corev1.ServicePort{
+		Name:       httpScheme,
+		Port:       JupyterPort,
+		TargetPort: intstr.FromInt(JupyterPort),
+		Protocol:   corev1.ProtocolTCP,
+	})
+	ports = append(ports, sidecarPorts...)
 
 	return corev1.ServiceSpec{
 		Type:     corev1.ServiceTypeClusterIP,
 		Selector: GenerateLabels(workspace.Name),
-		Ports:    append(ports, sidecarServicePorts(accessStrategy)...),
+		Ports:    ports,
 	}
 }
 
