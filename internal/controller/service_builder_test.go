@@ -274,7 +274,7 @@ var _ = Describe("ServiceBuilder sidecar ports", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(service.Spec.Ports).To(HaveLen(3))
 			Expect(service.Spec.Ports[1].Name).To(Equal("shared"))
-			Expect(service.Spec.Ports[2].Name).To(Equal("shared-2"))
+			Expect(service.Spec.Ports[2].Name).To(Equal("shared-9090"))
 		})
 
 		// The API server requires a name on every port of a multi-port Service
@@ -302,7 +302,7 @@ var _ = Describe("ServiceBuilder sidecar ports", func() {
 
 			service, err := serviceBuilder.BuildService(workspace, accessStrategy)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(service.Spec.Ports[1].Name).To(Equal("http-2"))
+			Expect(service.Spec.Ports[1].Name).To(Equal("http-8080"))
 		})
 	})
 

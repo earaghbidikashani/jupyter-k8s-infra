@@ -159,7 +159,9 @@ func sidecarServicePorts(accessStrategy *workspacev1alpha1.WorkspaceAccessStrate
 // long or contain an illegal character, so the name is used as-is.
 //
 // Uniqueness does need handling: ContainerPort names are only unique within a single container,
-// so two sidecars may each legally declare the same port name.
+// so two sidecars may each legally declare the same port name (or default to the same container
+// name). A colliding name is qualified with its port number, which the caller has already made
+// unique across the Service.
 func servicePortName(containerPort corev1.ContainerPort, containerName string, usedNames map[string]bool) string {
 	candidate := containerPort.Name
 	if candidate == "" {
@@ -170,13 +172,9 @@ func servicePortName(containerPort corev1.ContainerPort, containerName string, u
 		return candidate
 	}
 
-	// Deterministic suffix so the generated spec is stable across reconciles.
-	for i := 2; ; i++ {
-		name := fmt.Sprintf("%s-%d", candidate, i)
-		if !usedNames[name] {
-			return name
-		}
-	}
+	// The caller skips duplicate port numbers, so every emitted port has a distinct number:
+	// qualifying with it yields a distinct name without searching for a free one.
+	return fmt.Sprintf("%s-%d", candidate, containerPort.ContainerPort)
 }
 
 // NeedsUpdate checks if the existing service needs to be updated based on workspace changes.
