@@ -142,15 +142,16 @@ var _ = Describe("ServiceBuilder sidecar ports", func() {
 		}
 	})
 
-	// accessStrategyWithContainers builds an access strategy whose pod modifications inject
-	// the given sidecar containers.
-	accessStrategyWithContainers := func(containers ...corev1.Container) *workspacev1alpha1.WorkspaceAccessStrategy {
+	// accessStrategy builds an access strategy that injects the given sidecar containers and
+	// opts the named ports into the workspace Service via exposedPorts.
+	accessStrategy := func(exposedPorts []string, containers ...corev1.Container) *workspacev1alpha1.WorkspaceAccessStrategy {
 		return &workspacev1alpha1.WorkspaceAccessStrategy{
 			ObjectMeta: metav1.ObjectMeta{Name: "websocket-access-strategy", Namespace: testNamespace},
 			Spec: workspacev1alpha1.WorkspaceAccessStrategySpec{
 				DeploymentModifications: &workspacev1alpha1.DeploymentModifications{
 					PodModifications: &workspacev1alpha1.PodModifications{
 						AdditionalContainers: containers,
+						ExposedPorts:         exposedPorts,
 					},
 				},
 			},
@@ -165,7 +166,14 @@ var _ = Describe("ServiceBuilder sidecar ports", func() {
 		}
 	}
 
-	Context("when no sidecar ports are declared", func() {
+	metricsContainer := func() corev1.Container {
+		return corev1.Container{
+			Name:  nameMetrics,
+			Ports: []corev1.ContainerPort{{Name: nameMetrics, ContainerPort: 9090}},
+		}
+	}
+
+	Context("when nothing is exposed", func() {
 		It("exposes only the application port with a nil access strategy", func() {
 			service, err := serviceBuilder.BuildService(workspace, nil)
 			Expect(err).NotTo(HaveOccurred())
@@ -181,23 +189,31 @@ var _ = Describe("ServiceBuilder sidecar ports", func() {
 			Expect(service.Spec.Ports).To(HaveLen(1))
 		})
 
-		// The SSM sidecar is exactly this shape: it dials outbound, so it declares no ports.
+		// A declared port is not exposed unless it is opted in: exposure is explicit, so a
+		// sidecar port left off exposedPorts stays internal to the pod.
+		It("exposes only the application port when a sidecar declares a port but exposes none", func() {
+			service, err := serviceBuilder.BuildService(workspace, accessStrategy(nil, wsProxyContainer()))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(service.Spec.Ports).To(HaveLen(1))
+			Expect(service.Spec.Ports[0].Port).To(Equal(int32(JupyterPort)))
+		})
+
+		// The SSM sidecar is this shape: it dials outbound, declares no ports, exposes none.
 		It("exposes only the application port when a sidecar declares no ports", func() {
-			accessStrategy := accessStrategyWithContainers(corev1.Container{
+			service, err := serviceBuilder.BuildService(workspace, accessStrategy(nil, corev1.Container{
 				Name:  "ssm-agent-sidecar",
 				Image: "example.com/ssm-agent:latest",
-			})
-
-			service, err := serviceBuilder.BuildService(workspace, accessStrategy)
+			}))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(service.Spec.Ports).To(HaveLen(1))
 			Expect(service.Spec.Ports[0].Port).To(Equal(int32(JupyterPort)))
 		})
 	})
 
-	Context("when a sidecar declares a port", func() {
-		It("exposes it alongside the application port", func() {
-			service, err := serviceBuilder.BuildService(workspace, accessStrategyWithContainers(wsProxyContainer()))
+	Context("when ports are exposed", func() {
+		It("exposes a named sidecar port alongside the application port", func() {
+			service, err := serviceBuilder.BuildService(workspace,
+				accessStrategy([]string{nameWSProxy}, wsProxyContainer()))
 			Expect(err).NotTo(HaveOccurred())
 
 			Expect(service.Spec.Ports).To(HaveLen(2))
@@ -210,161 +226,129 @@ var _ = Describe("ServiceBuilder sidecar ports", func() {
 			Expect(wsPort.Protocol).To(Equal(corev1.ProtocolTCP))
 		})
 
-		It("exposes every port declared across multiple sidecars", func() {
-			accessStrategy := accessStrategyWithContainers(
-				wsProxyContainer(),
-				corev1.Container{
-					Name:  nameMetrics,
-					Ports: []corev1.ContainerPort{{Name: nameMetrics, ContainerPort: 9090}},
-				},
-			)
-
-			service, err := serviceBuilder.BuildService(workspace, accessStrategy)
+		It("exposes only the ports listed, not every declared port", func() {
+			service, err := serviceBuilder.BuildService(workspace,
+				accessStrategy([]string{nameWSProxy}, wsProxyContainer(), metricsContainer()))
 			Expect(err).NotTo(HaveOccurred())
+
+			Expect(service.Spec.Ports).To(HaveLen(2))
+			Expect(service.Spec.Ports[1].Name).To(Equal(nameWSProxy))
+		})
+
+		It("exposes ports drawn from several sidecars", func() {
+			service, err := serviceBuilder.BuildService(workspace,
+				accessStrategy([]string{nameWSProxy, nameMetrics}, wsProxyContainer(), metricsContainer()))
+			Expect(err).NotTo(HaveOccurred())
+
 			Expect(service.Spec.Ports).To(HaveLen(3))
+			Expect(service.Spec.Ports[1].Name).To(Equal(nameWSProxy))
 			Expect(service.Spec.Ports[2].Name).To(Equal(nameMetrics))
 			Expect(service.Spec.Ports[2].Port).To(Equal(int32(9090)))
 		})
 
-		It("preserves a non-TCP protocol", func() {
-			accessStrategy := accessStrategyWithContainers(corev1.Container{
-				Name:  "dns-sidecar",
-				Ports: []corev1.ContainerPort{{Name: "dns", ContainerPort: 5353, Protocol: corev1.ProtocolUDP}},
-			})
+		It("preserves the order of exposedPorts", func() {
+			service, err := serviceBuilder.BuildService(workspace,
+				accessStrategy([]string{nameMetrics, nameWSProxy}, wsProxyContainer(), metricsContainer()))
+			Expect(err).NotTo(HaveOccurred())
 
-			service, err := serviceBuilder.BuildService(workspace, accessStrategy)
+			Expect(service.Spec.Ports[1].Name).To(Equal(nameMetrics))
+			Expect(service.Spec.Ports[2].Name).To(Equal(nameWSProxy))
+		})
+
+		It("preserves a non-TCP protocol", func() {
+			service, err := serviceBuilder.BuildService(workspace,
+				accessStrategy([]string{"dns"}, corev1.Container{
+					Name:  "dns-sidecar",
+					Ports: []corev1.ContainerPort{{Name: "dns", ContainerPort: 5353, Protocol: corev1.ProtocolUDP}},
+				}))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(service.Spec.Ports[1].Protocol).To(Equal(corev1.ProtocolUDP))
 		})
 	})
 
-	Context("port naming", func() {
-		It("falls back to the container name when the port is unnamed", func() {
-			accessStrategy := accessStrategyWithContainers(corev1.Container{
-				Name:  nameWSProxy,
-				Ports: []corev1.ContainerPort{{ContainerPort: 8080}},
-			})
-
-			service, err := serviceBuilder.BuildService(workspace, accessStrategy)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(service.Spec.Ports[1].Name).To(Equal(nameWSProxy))
+	Context("when exposedPorts is invalid", func() {
+		It("errors when a name matches no declared port", func() {
+			_, err := serviceBuilder.BuildService(workspace,
+				accessStrategy([]string{"nonexistent"}, wsProxyContainer()))
+			Expect(err).To(MatchError(ContainSubstring("matches no port")))
 		})
 
-		// ServicePort.Name is a DNS-1123 label (up to 63 chars), and a container name is
-		// validated as one too, so a long container name needs no truncation. Truncating
-		// would corrupt a legal name into a different string.
-		It("uses a long container name verbatim", func() {
-			accessStrategy := accessStrategyWithContainers(corev1.Container{
-				Name:  "an-extremely-long-sidecar-container-name",
-				Ports: []corev1.ContainerPort{{ContainerPort: 8080}},
-			})
-
-			service, err := serviceBuilder.BuildService(workspace, accessStrategy)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(service.Spec.Ports[1].Name).To(Equal("an-extremely-long-sidecar-container-name"))
-		})
-
-		It("disambiguates colliding names deterministically", func() {
-			accessStrategy := accessStrategyWithContainers(
+		It("errors when a name is declared by more than one container", func() {
+			_, err := serviceBuilder.BuildService(workspace, accessStrategy([]string{"shared"},
 				corev1.Container{Name: "proxy", Ports: []corev1.ContainerPort{{Name: "shared", ContainerPort: 8080}}},
 				corev1.Container{Name: "other", Ports: []corev1.ContainerPort{{Name: "shared", ContainerPort: 9090}}},
-			)
-
-			service, err := serviceBuilder.BuildService(workspace, accessStrategy)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(service.Spec.Ports).To(HaveLen(3))
-			Expect(service.Spec.Ports[1].Name).To(Equal("shared"))
-			Expect(service.Spec.Ports[2].Name).To(Equal("shared-9090"))
+			))
+			Expect(err).To(MatchError(ContainSubstring("more than one")))
 		})
 
-		// The API server requires a name on every port of a multi-port Service
-		// (validateServicePort's requireName is len(spec.ports) > 1), so an unnamed
-		// derived port would make the whole Service invalid.
-		It("names every port whenever more than one is exposed", func() {
-			accessStrategy := accessStrategyWithContainers(
-				corev1.Container{Name: nameWSProxy, Ports: []corev1.ContainerPort{{ContainerPort: 8080}}},
-				corev1.Container{Name: nameMetrics, Ports: []corev1.ContainerPort{{ContainerPort: 9090}}},
-			)
-
-			service, err := serviceBuilder.BuildService(workspace, accessStrategy)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(service.Spec.Ports).To(HaveLen(3))
-			for _, port := range service.Spec.Ports {
-				Expect(port.Name).NotTo(BeEmpty())
-			}
+		It("errors when two exposed ports target the same number", func() {
+			_, err := serviceBuilder.BuildService(workspace, accessStrategy([]string{"first", "second"},
+				corev1.Container{Name: "a", Ports: []corev1.ContainerPort{{Name: "first", ContainerPort: 8080}}},
+				corev1.Container{Name: "b", Ports: []corev1.ContainerPort{{Name: "second", ContainerPort: 8080}}},
+			))
+			Expect(err).To(MatchError(ContainSubstring("both target port 8080")))
 		})
 
-		It("does not collide with the application port name", func() {
-			accessStrategy := accessStrategyWithContainers(corev1.Container{
-				Name:  "sidecar",
-				Ports: []corev1.ContainerPort{{Name: httpScheme, ContainerPort: 8080}},
-			})
-
-			service, err := serviceBuilder.BuildService(workspace, accessStrategy)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(service.Spec.Ports[1].Name).To(Equal("http-8080"))
-		})
-	})
-
-	Context("duplicate port numbers", func() {
-		It("skips a sidecar port that collides with the application port", func() {
-			accessStrategy := accessStrategyWithContainers(corev1.Container{
-				Name:  "shadow",
-				Ports: []corev1.ContainerPort{{Name: "shadow", ContainerPort: JupyterPort}},
-			})
-
-			service, err := serviceBuilder.BuildService(workspace, accessStrategy)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(service.Spec.Ports).To(HaveLen(1))
-			Expect(service.Spec.Ports[0].Name).To(Equal(httpScheme))
+		It("errors when an exposed port targets the application port number", func() {
+			_, err := serviceBuilder.BuildService(workspace, accessStrategy([]string{"shadow"},
+				corev1.Container{Name: "shadow", Ports: []corev1.ContainerPort{{Name: "shadow", ContainerPort: JupyterPort}}},
+			))
+			Expect(err).To(MatchError(ContainSubstring("reserved for the application")))
 		})
 
-		It("skips a port number already claimed by another sidecar", func() {
-			accessStrategy := accessStrategyWithContainers(
-				corev1.Container{Name: "first", Ports: []corev1.ContainerPort{{Name: "first", ContainerPort: 8080}}},
-				corev1.Container{Name: "second", Ports: []corev1.ContainerPort{{Name: "second", ContainerPort: 8080}}},
-			)
+		It("errors when an exposed port reuses the application port name", func() {
+			_, err := serviceBuilder.BuildService(workspace, accessStrategy([]string{httpScheme},
+				corev1.Container{Name: "sidecar", Ports: []corev1.ContainerPort{{Name: httpScheme, ContainerPort: 8080}}},
+			))
+			Expect(err).To(MatchError(ContainSubstring("reserved application port name")))
+		})
 
-			service, err := serviceBuilder.BuildService(workspace, accessStrategy)
+		// A name collision among ports nobody exposes is a legal pod config and must not fail.
+		It("ignores a name collision among ports that are not exposed", func() {
+			service, err := serviceBuilder.BuildService(workspace, accessStrategy([]string{nameWSProxy},
+				wsProxyContainer(),
+				corev1.Container{Name: "a", Ports: []corev1.ContainerPort{{Name: "dup", ContainerPort: 7000}}},
+				corev1.Container{Name: "b", Ports: []corev1.ContainerPort{{Name: "dup", ContainerPort: 7001}}},
+			))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(service.Spec.Ports).To(HaveLen(2))
-			Expect(service.Spec.Ports[1].Name).To(Equal("first"))
+			Expect(service.Spec.Ports[1].Name).To(Equal(nameWSProxy))
 		})
 	})
 
 	Context("reconciling an existing service", func() {
-		It("detects that a single-port service must gain the sidecar port", func() {
+		It("detects that a single-port service must gain the exposed port", func() {
 			existingService, err := serviceBuilder.BuildService(workspace, nil)
 			Expect(err).NotTo(HaveOccurred())
 			applyAPIServerDefaults(existingService)
 
-			accessStrategy := accessStrategyWithContainers(wsProxyContainer())
+			strategy := accessStrategy([]string{nameWSProxy}, wsProxyContainer())
 
-			needsUpdate, err := serviceBuilder.NeedsUpdate(ctx, existingService, workspace, accessStrategy)
+			needsUpdate, err := serviceBuilder.NeedsUpdate(ctx, existingService, workspace, strategy)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(needsUpdate).To(BeTrue())
 
-			Expect(serviceBuilder.UpdateServiceSpec(ctx, existingService, workspace, accessStrategy)).To(Succeed())
+			Expect(serviceBuilder.UpdateServiceSpec(ctx, existingService, workspace, strategy)).To(Succeed())
 			Expect(existingService.Spec.Ports).To(HaveLen(2))
 			Expect(existingService.Spec.Ports[1].Port).To(Equal(int32(8080)))
 			// The update must not clobber server-populated immutable fields.
 			Expect(existingService.Spec.ClusterIP).To(Equal(testClusterIP))
 		})
 
-		It("detects no update once the sidecar port is already exposed", func() {
-			accessStrategy := accessStrategyWithContainers(wsProxyContainer())
-			existingService, err := serviceBuilder.BuildService(workspace, accessStrategy)
+		It("detects no update once the exposed port is already present", func() {
+			strategy := accessStrategy([]string{nameWSProxy}, wsProxyContainer())
+			existingService, err := serviceBuilder.BuildService(workspace, strategy)
 			Expect(err).NotTo(HaveOccurred())
 			applyAPIServerDefaults(existingService)
 
-			needsUpdate, err := serviceBuilder.NeedsUpdate(ctx, existingService, workspace, accessStrategy)
+			needsUpdate, err := serviceBuilder.NeedsUpdate(ctx, existingService, workspace, strategy)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(needsUpdate).To(BeFalse())
 		})
 
-		It("removes the sidecar port when the access strategy no longer declares it", func() {
-			accessStrategy := accessStrategyWithContainers(wsProxyContainer())
-			existingService, err := serviceBuilder.BuildService(workspace, accessStrategy)
+		It("removes the exposed port when the access strategy no longer opts into it", func() {
+			strategy := accessStrategy([]string{nameWSProxy}, wsProxyContainer())
+			existingService, err := serviceBuilder.BuildService(workspace, strategy)
 			Expect(err).NotTo(HaveOccurred())
 			applyAPIServerDefaults(existingService)
 

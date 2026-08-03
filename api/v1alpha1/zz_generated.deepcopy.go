@@ -312,6 +312,11 @@ func (in *PodModifications) DeepCopyInto(out *PodModifications) {
 			(*in)[i].DeepCopyInto(&(*out)[i])
 		}
 	}
+	if in.ExposedPorts != nil {
+		in, out := &in.ExposedPorts, &out.ExposedPorts
+		*out = make([]string, len(*in))
+		copy(*out, *in)
+	}
 	if in.Volumes != nil {
 		in, out := &in.Volumes, &out.Volumes
 		*out = make([]v1.Volume, len(*in))

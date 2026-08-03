@@ -17,7 +17,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 // ServiceBuilder handles creation of Service resources for Workspace
@@ -34,17 +33,22 @@ func NewServiceBuilder(scheme *runtime.Scheme) *ServiceBuilder {
 
 // BuildService creates a Service resource for the given Workspace.
 //
-// The Service describes the ports the workspace pod actually serves. Sidecars injected by the
-// access strategy may listen on their own ports, so those are exposed alongside the application
-// port; a Service only forwards traffic on ports it explicitly declares. accessStrategy may be
-// nil, in which case only the application port is exposed.
+// Alongside the application port, the Service publishes the sidecar container ports the access
+// strategy opts into via podModifications.exposedPorts; a Service only forwards traffic on ports
+// it explicitly declares. accessStrategy may be nil, in which case only the application port is
+// exposed.
 func (sb *ServiceBuilder) BuildService(
 	workspace *workspacev1alpha1.Workspace,
 	accessStrategy *workspacev1alpha1.WorkspaceAccessStrategy,
 ) (*corev1.Service, error) {
+	spec, err := buildServiceSpec(workspace, accessStrategy)
+	if err != nil {
+		return nil, err
+	}
+
 	service := &corev1.Service{
 		ObjectMeta: sb.buildObjectMeta(workspace),
-		Spec:       sb.buildServiceSpec(workspace, accessStrategy),
+		Spec:       spec,
 	}
 
 	// Set owner reference for garbage collection
@@ -65,11 +69,15 @@ func (sb *ServiceBuilder) buildObjectMeta(workspace *workspacev1alpha1.Workspace
 }
 
 // buildServiceSpec creates the service specification
-func (sb *ServiceBuilder) buildServiceSpec(
+func buildServiceSpec(
 	workspace *workspacev1alpha1.Workspace,
 	accessStrategy *workspacev1alpha1.WorkspaceAccessStrategy,
-) corev1.ServiceSpec {
-	sidecarPorts := sidecarServicePorts(accessStrategy)
+) (corev1.ServiceSpec, error) {
+	sidecarPorts, err := sidecarServicePorts(accessStrategy)
+	if err != nil {
+		return corev1.ServiceSpec{}, err
+	}
+
 	ports := make([]corev1.ServicePort, 0, 1+len(sidecarPorts))
 	ports = append(ports, corev1.ServicePort{
 		Name:       httpScheme,
@@ -83,88 +91,93 @@ func (sb *ServiceBuilder) buildServiceSpec(
 		Type:     corev1.ServiceTypeClusterIP,
 		Selector: GenerateLabels(workspace.Name),
 		Ports:    ports,
-	}
+	}, nil
 }
 
-// sidecarServicePorts derives the Service ports for containers the access strategy injects
-// into the workspace pod. Each container port a sidecar declares becomes routable; sidecars
-// that declare no ports (for example an agent that only dials outbound) contribute nothing.
+// sidecarServicePorts resolves the Service ports the access strategy opts into via
+// podModifications.exposedPorts. Each entry names a container port to publish; a containerPort is
+// informational and does not by itself grant reachability, so exposure is explicit rather than
+// derived from every port a sidecar happens to declare.
 //
-// Ports colliding with the application port, or duplicated across sidecars, are skipped and
-// logged: nothing upstream rejects a duplicate containerPort, but the API server does reject a
-// Service with a duplicate (protocol, port) pair.
-func sidecarServicePorts(accessStrategy *workspacev1alpha1.WorkspaceAccessStrategy) []corev1.ServicePort {
+// Every listed name must resolve to exactly one sidecar container port. An unknown name, a name
+// declared by more than one container, a name that shadows the application port, and two exposed
+// ports colliding on number are all rejected: the resulting Service would be wrong or ambiguous,
+// so surfacing it as an error beats silently publishing something unintended.
+func sidecarServicePorts(accessStrategy *workspacev1alpha1.WorkspaceAccessStrategy) ([]corev1.ServicePort, error) {
 	if accessStrategy == nil ||
 		accessStrategy.Spec.DeploymentModifications == nil ||
 		accessStrategy.Spec.DeploymentModifications.PodModifications == nil {
-		return nil
+		return nil, nil
 	}
 
-	containers := accessStrategy.Spec.DeploymentModifications.PodModifications.AdditionalContainers
-	if len(containers) == 0 {
-		return nil
+	podMods := accessStrategy.Spec.DeploymentModifications.PodModifications
+	if len(podMods.ExposedPorts) == 0 {
+		return nil, nil
 	}
 
-	var ports []corev1.ServicePort
-	usedPorts := map[int32]bool{JupyterPort: true}
-	usedNames := map[string]bool{httpScheme: true}
+	ports := make([]corev1.ServicePort, 0, len(podMods.ExposedPorts))
+	usedNumbers := map[int32]string{JupyterPort: httpScheme}
+
+	for _, name := range podMods.ExposedPorts {
+		if name == httpScheme {
+			return nil, fmt.Errorf("exposed port %q collides with the reserved application port name", name)
+		}
+
+		containerPort, err := resolveContainerPort(podMods.AdditionalContainers, name)
+		if err != nil {
+			return nil, err
+		}
+
+		if containerPort.ContainerPort == JupyterPort {
+			return nil, fmt.Errorf("exposed port %q targets port %d, reserved for the application", name, JupyterPort)
+		}
+		if other, taken := usedNumbers[containerPort.ContainerPort]; taken {
+			return nil, fmt.Errorf("exposed ports %q and %q both target port %d", other, name, containerPort.ContainerPort)
+		}
+		usedNumbers[containerPort.ContainerPort] = name
+
+		protocol := containerPort.Protocol
+		if protocol == "" {
+			protocol = corev1.ProtocolTCP
+		}
+
+		ports = append(ports, corev1.ServicePort{
+			Name:       name,
+			Port:       containerPort.ContainerPort,
+			TargetPort: intstr.FromInt32(containerPort.ContainerPort),
+			Protocol:   protocol,
+		})
+	}
+
+	return ports, nil
+}
+
+// resolveContainerPort finds the single sidecar container port named name. A name that matches no
+// declared port cannot be exposed; a name declared by more than one container is ambiguous —
+// nothing says which the strategy meant — so both are rejected rather than guessed. Only exposed
+// names are resolved, so an unrelated name collision among ports nobody exposes is left alone.
+func resolveContainerPort(containers []corev1.Container, name string) (corev1.ContainerPort, error) {
+	var match corev1.ContainerPort
+	found := false
 
 	for _, container := range containers {
 		for _, containerPort := range container.Ports {
-			if usedPorts[containerPort.ContainerPort] {
-				logf.Log.V(1).Info("Skipping sidecar container port already exposed on the workspace service",
-					"accessStrategy", accessStrategy.Name,
-					"container", container.Name,
-					"port", containerPort.ContainerPort)
+			if containerPort.Name != name {
 				continue
 			}
-			usedPorts[containerPort.ContainerPort] = true
-
-			protocol := containerPort.Protocol
-			if protocol == "" {
-				protocol = corev1.ProtocolTCP
+			if found {
+				return corev1.ContainerPort{}, fmt.Errorf("exposed port %q is declared by more than one additional container", name)
 			}
-
-			name := servicePortName(containerPort, container.Name, usedNames)
-			usedNames[name] = true
-
-			ports = append(ports, corev1.ServicePort{
-				Name:       name,
-				Port:       containerPort.ContainerPort,
-				TargetPort: intstr.FromInt32(containerPort.ContainerPort),
-				Protocol:   protocol,
-			})
-
-			logf.Log.V(1).Info("Exposing sidecar container port on the workspace service",
-				"accessStrategy", accessStrategy.Name,
-				"container", container.Name,
-				"port", containerPort.ContainerPort,
-				"portName", name)
+			match = containerPort
+			found = true
 		}
 	}
 
-	return ports
-}
-
-// servicePortName picks a unique ServicePort name for a sidecar container port.
-//
-// The API server requires a name on every port once a Service declares more than one, and
-// ContainerPort.Name is optional, so it falls back to the container name. Both are already valid
-// ServicePort names. Container port names are unique only within a container, so a name already
-// taken is qualified with its port number — unique across the Service by construction.
-func servicePortName(containerPort corev1.ContainerPort, containerName string, usedNames map[string]bool) string {
-	candidate := containerPort.Name
-	if candidate == "" {
-		candidate = containerName
+	if !found {
+		return corev1.ContainerPort{}, fmt.Errorf("exposed port %q matches no port declared by any additional container", name)
 	}
 
-	if !usedNames[candidate] {
-		return candidate
-	}
-
-	// The caller skips duplicate port numbers, so every emitted port has a distinct number:
-	// qualifying with it yields a distinct name without searching for a free one.
-	return fmt.Sprintf("%s-%d", candidate, containerPort.ContainerPort)
+	return match, nil
 }
 
 // NeedsUpdate checks if the existing service needs to be updated based on workspace changes.

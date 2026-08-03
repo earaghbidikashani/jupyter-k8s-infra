@@ -579,8 +579,15 @@ var _ = Describe("reconcileDesiredRunningStatus probe integration", func() {
 			return ws
 		}
 
-		// sidecarStrategy injects one sidecar declaring the given ports.
+		// sidecarStrategy injects one sidecar declaring the given ports and opts every named
+		// port into the Service, mirroring an author listing them in exposedPorts.
 		sidecarStrategy := func(ports ...corev1.ContainerPort) *workspacev1alpha1.WorkspaceAccessStrategy {
+			var exposed []string
+			for _, port := range ports {
+				if port.Name != "" {
+					exposed = append(exposed, port.Name)
+				}
+			}
 			return &workspacev1alpha1.WorkspaceAccessStrategy{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:       testStrategyName,
@@ -598,6 +605,7 @@ var _ = Describe("reconcileDesiredRunningStatus probe integration", func() {
 								Image: imageBaseNotebook,
 								Ports: ports,
 							}},
+							ExposedPorts: exposed,
 						},
 					},
 				},
