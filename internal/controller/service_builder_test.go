@@ -166,7 +166,7 @@ var _ = Describe("ServiceBuilder sidecar ports", func() {
 	}
 
 	Context("when no sidecar ports are declared", func() {
-		It("exposes only the Jupyter port with a nil access strategy", func() {
+		It("exposes only the application port with a nil access strategy", func() {
 			service, err := serviceBuilder.BuildService(workspace, nil)
 			Expect(err).NotTo(HaveOccurred())
 
@@ -175,14 +175,14 @@ var _ = Describe("ServiceBuilder sidecar ports", func() {
 			Expect(service.Spec.Ports[0].Port).To(Equal(int32(JupyterPort)))
 		})
 
-		It("exposes only the Jupyter port when the access strategy has no deployment modifications", func() {
+		It("exposes only the application port when the access strategy has no deployment modifications", func() {
 			service, err := serviceBuilder.BuildService(workspace, &workspacev1alpha1.WorkspaceAccessStrategy{})
 			Expect(err).NotTo(HaveOccurred())
 			Expect(service.Spec.Ports).To(HaveLen(1))
 		})
 
 		// The SSM sidecar is exactly this shape: it dials outbound, so it declares no ports.
-		It("exposes only the Jupyter port when a sidecar declares no ports", func() {
+		It("exposes only the application port when a sidecar declares no ports", func() {
 			accessStrategy := accessStrategyWithContainers(corev1.Container{
 				Name:  "ssm-agent-sidecar",
 				Image: "example.com/ssm-agent:latest",
@@ -196,7 +196,7 @@ var _ = Describe("ServiceBuilder sidecar ports", func() {
 	})
 
 	Context("when a sidecar declares a port", func() {
-		It("exposes it alongside the Jupyter port", func() {
+		It("exposes it alongside the application port", func() {
 			service, err := serviceBuilder.BuildService(workspace, accessStrategyWithContainers(wsProxyContainer()))
 			Expect(err).NotTo(HaveOccurred())
 
@@ -294,7 +294,7 @@ var _ = Describe("ServiceBuilder sidecar ports", func() {
 			}
 		})
 
-		It("does not collide with the Jupyter port name", func() {
+		It("does not collide with the application port name", func() {
 			accessStrategy := accessStrategyWithContainers(corev1.Container{
 				Name:  "sidecar",
 				Ports: []corev1.ContainerPort{{Name: httpScheme, ContainerPort: 8080}},
@@ -307,7 +307,7 @@ var _ = Describe("ServiceBuilder sidecar ports", func() {
 	})
 
 	Context("duplicate port numbers", func() {
-		It("skips a sidecar port that collides with the Jupyter port", func() {
+		It("skips a sidecar port that collides with the application port", func() {
 			accessStrategy := accessStrategyWithContainers(corev1.Container{
 				Name:  "shadow",
 				Ports: []corev1.ContainerPort{{Name: "shadow", ContainerPort: JupyterPort}},

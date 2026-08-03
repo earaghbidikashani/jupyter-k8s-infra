@@ -35,9 +35,9 @@ func NewServiceBuilder(scheme *runtime.Scheme) *ServiceBuilder {
 // BuildService creates a Service resource for the given Workspace.
 //
 // The Service describes the ports the workspace pod actually serves. Sidecars injected by the
-// access strategy may listen on their own ports, so those are exposed alongside the Jupyter port;
-// a Service only forwards traffic on ports it explicitly declares. accessStrategy may be nil,
-// in which case only the Jupyter port is exposed.
+// access strategy may listen on their own ports, so those are exposed alongside the application
+// port; a Service only forwards traffic on ports it explicitly declares. accessStrategy may be
+// nil, in which case only the application port is exposed.
 func (sb *ServiceBuilder) BuildService(
 	workspace *workspacev1alpha1.Workspace,
 	accessStrategy *workspacev1alpha1.WorkspaceAccessStrategy,
@@ -90,11 +90,9 @@ func (sb *ServiceBuilder) buildServiceSpec(
 // into the workspace pod. Each container port a sidecar declares becomes routable; sidecars
 // that declare no ports (for example an agent that only dials outbound) contribute nothing.
 //
-// Ports colliding with the Jupyter port, or duplicated across sidecars, are skipped and logged.
-// Nothing rejects a duplicate containerPort number upstream — core Pod validation only checks
-// hostPort conflicts, and CRD structural schemas do not validate embedded container ports at all
-// — so an access strategy may legitimately carry one. Skipping keeps the emitted Service valid;
-// the API server rejects a Service with a duplicate (protocol, port) pair.
+// Ports colliding with the application port, or duplicated across sidecars, are skipped and
+// logged: nothing upstream rejects a duplicate containerPort, but the API server does reject a
+// Service with a duplicate (protocol, port) pair.
 func sidecarServicePorts(accessStrategy *workspacev1alpha1.WorkspaceAccessStrategy) []corev1.ServicePort {
 	if accessStrategy == nil ||
 		accessStrategy.Spec.DeploymentModifications == nil ||
@@ -150,19 +148,10 @@ func sidecarServicePorts(accessStrategy *workspacev1alpha1.WorkspaceAccessStrate
 
 // servicePortName picks a unique ServicePort name for a sidecar container port.
 //
-// A name is required, not cosmetic: the API server rejects an unnamed port on any Service that
-// declares more than one (validateServicePort is called with requireName = len(ports) > 1). So
-// every derived port must get one.
-//
-// Both possible sources are already valid ServicePort names — a ContainerPort name is validated
-// as a port name (at most 15 chars, [-a-z0-9]) and a container name as a DNS-1123 label (at most
-// 63) — while ServicePort.Name allows a full 63-char DNS-1123 label. Neither can therefore be too
-// long or contain an illegal character, so the name is used as-is.
-//
-// Uniqueness does need handling: ContainerPort names are only unique within a single container,
-// so two sidecars may each legally declare the same port name (or default to the same container
-// name). A colliding name is qualified with its port number, which the caller has already made
-// unique across the Service.
+// The API server requires a name on every port once a Service declares more than one, and
+// ContainerPort.Name is optional, so it falls back to the container name. Both are already valid
+// ServicePort names. Container port names are unique only within a container, so a name already
+// taken is qualified with its port number — unique across the Service by construction.
 func servicePortName(containerPort corev1.ContainerPort, containerName string, usedNames map[string]bool) string {
 	candidate := containerPort.Name
 	if candidate == "" {
