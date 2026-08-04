@@ -274,9 +274,9 @@ var _ = Describe("ServiceBuilder sidecar ports", func() {
 		})
 
 		It("errors when a name is declared by more than one container", func() {
-			_, err := serviceBuilder.BuildService(workspace, accessStrategy([]string{"shared"},
-				corev1.Container{Name: "proxy", Ports: []corev1.ContainerPort{{Name: "shared", ContainerPort: 8080}}},
-				corev1.Container{Name: "other", Ports: []corev1.ContainerPort{{Name: "shared", ContainerPort: 9090}}},
+			_, err := serviceBuilder.BuildService(workspace, accessStrategy([]string{nameShared},
+				corev1.Container{Name: "proxy", Ports: []corev1.ContainerPort{{Name: nameShared, ContainerPort: 8080}}},
+				corev1.Container{Name: "other", Ports: []corev1.ContainerPort{{Name: nameShared, ContainerPort: 9090}}},
 			))
 			Expect(err).To(MatchError(ContainSubstring("more than one")))
 		})
@@ -290,8 +290,8 @@ var _ = Describe("ServiceBuilder sidecar ports", func() {
 		})
 
 		It("errors when an exposed port targets the application port number", func() {
-			_, err := serviceBuilder.BuildService(workspace, accessStrategy([]string{"shadow"},
-				corev1.Container{Name: "shadow", Ports: []corev1.ContainerPort{{Name: "shadow", ContainerPort: JupyterPort}}},
+			_, err := serviceBuilder.BuildService(workspace, accessStrategy([]string{nameShadow},
+				corev1.Container{Name: nameShadow, Ports: []corev1.ContainerPort{{Name: nameShadow, ContainerPort: JupyterPort}}},
 			))
 			Expect(err).To(MatchError(ContainSubstring("reserved for the application")))
 		})
@@ -369,6 +369,10 @@ const (
 	nameWSProxy = "ws-proxy"
 	// nameMetrics is a second sidecar container / port name used across tests.
 	nameMetrics = "metrics"
+	// nameShared is a port name two sidecars both declare, making it ambiguous to expose.
+	nameShared = "shared"
+	// nameShadow is a port name whose container port shadows the application port.
+	nameShadow = "shadow"
 )
 
 // applyAPIServerDefaults mutates a freshly built Service to look like one read back from
