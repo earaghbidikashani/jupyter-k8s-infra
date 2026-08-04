@@ -19,5 +19,5 @@ spec:
       # No container declares a port by this name, so the Service cannot be built and the
       # workspace must report the failure instead of silently exposing nothing.
       exposedPorts:
-        - not-a-declared-port
+        - no-such-port
   accessURLTemplate: "https://example.com/workspaces/{{ .Workspace.Namespace }}/{{ .Workspace.Name }}/"

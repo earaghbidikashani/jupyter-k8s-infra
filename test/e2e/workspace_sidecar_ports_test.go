@@ -184,7 +184,7 @@ var _ = Describe("Workspace Sidecar Service Ports", Ordered, func() {
 				message, err := kubectlGet("workspace", workspaceName, workspaceNamespace,
 					fmt.Sprintf("{.status.conditions[?(@.type=='%s')].message}", controller.ConditionTypeDegraded))
 				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(message).To(ContainSubstring("not-a-declared-port"))
+				g.Expect(message).To(ContainSubstring("no-such-port"))
 			}, 2*time.Minute, 5*time.Second).Should(Succeed())
 		})
 	})
