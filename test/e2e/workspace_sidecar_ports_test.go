@@ -10,14 +10,12 @@ package e2e
 
 import (
 	"fmt"
-	"os/exec"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	"github.com/jupyter-infra/jupyter-k8s/internal/controller"
-	"github.com/jupyter-infra/jupyter-k8s/test/utils"
 )
 
 // A sidecar port only becomes routable if the access strategy opts into it via exposedPorts.
@@ -38,27 +36,6 @@ var _ = Describe("Workspace Sidecar Service Ports", Ordered, func() {
 	AfterEach(func() {
 		deleteResourcesForAccessStrategyTest(workspaceNamespace)
 	})
-
-	// servicePortNames returns the names of every port on the workspace Service, space separated.
-	servicePortNames := func(serviceName string) (string, error) {
-		return kubectlGet("service", serviceName, workspaceNamespace,
-			"{range .spec.ports[*]}{.name}{\" \"}{end}")
-	}
-
-	// serviceNameFor waits until the workspace publishes the Service it owns and returns its name.
-	serviceNameFor := func(workspaceName string) string {
-		GinkgoHelper()
-
-		var serviceName string
-		Eventually(func(g Gomega) {
-			name, err := kubectlGet("workspace", workspaceName, workspaceNamespace, "{.status.serviceName}")
-			g.Expect(err).NotTo(HaveOccurred())
-			g.Expect(name).NotTo(BeEmpty(), "workspace.status.serviceName should be set")
-			serviceName = name
-		}, 2*time.Minute, 5*time.Second).Should(Succeed())
-
-		return serviceName
-	}
 
 	Context("when an access strategy exposes a sidecar port", func() {
 		const (
@@ -92,7 +69,7 @@ var _ = Describe("Workspace Sidecar Service Ports", Ordered, func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(sidecarName).To(Equal("port-sidecar"), "access strategy sidecar should be injected")
 
-			serviceName := serviceNameFor(workspaceName)
+			serviceName := GetWorkspaceServiceName(workspaceName, workspaceNamespace)
 
 			By("verifying the application port is still published")
 			Eventually(func(g Gomega) {
@@ -116,7 +93,7 @@ var _ = Describe("Workspace Sidecar Service Ports", Ordered, func() {
 			}, 2*time.Minute, 5*time.Second).Should(Succeed())
 
 			By("verifying the port the strategy did not expose is absent from the Service")
-			names, err := servicePortNames(serviceName)
+			names, err := GetServicePortNames(serviceName, workspaceNamespace)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(names).NotTo(ContainSubstring(unexposedPortName),
 				"a declared containerPort must not be published unless exposedPorts lists it")
@@ -136,16 +113,10 @@ var _ = Describe("Workspace Sidecar Service Ports", Ordered, func() {
 				ConditionTrue,
 			)
 
-			serviceName := serviceNameFor(workspaceName)
+			serviceName := GetWorkspaceServiceName(workspaceName, workspaceNamespace)
 
 			By("exposing the second declared port on the live access strategy")
-			patch := fmt.Sprintf(
-				`{"spec":{"deploymentModifications":{"podModifications":{"exposedPorts":[%q,%q]}}}}`,
-				exposedPortName, unexposedPortName)
-			cmd := exec.Command("kubectl", "patch", "workspaceaccessstrategy", accessStrategyName,
-				"-n", SharedNamespace, "--type=merge", "-p", patch)
-			_, err := utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred())
+			patchAccessStrategy(groupDir, "updates", "access-strategy-expose-both-ports-patch", accessStrategyName)
 
 			By("verifying the newly exposed port appears on the Service")
 			Eventually(func(g Gomega) {
@@ -157,17 +128,11 @@ var _ = Describe("Workspace Sidecar Service Ports", Ordered, func() {
 				"the reconciler should add a port once the access strategy exposes it")
 
 			By("removing it again from exposedPorts")
-			patch = fmt.Sprintf(
-				`{"spec":{"deploymentModifications":{"podModifications":{"exposedPorts":[%q]}}}}`,
-				exposedPortName)
-			cmd = exec.Command("kubectl", "patch", "workspaceaccessstrategy", accessStrategyName,
-				"-n", SharedNamespace, "--type=merge", "-p", patch)
-			_, err = utils.Run(cmd)
-			Expect(err).NotTo(HaveOccurred())
+			patchAccessStrategy(groupDir, "updates", "access-strategy-expose-one-port-patch", accessStrategyName)
 
 			By("verifying the port is withdrawn from the Service")
 			Eventually(func(g Gomega) {
-				names, err := servicePortNames(serviceName)
+				names, err := GetServicePortNames(serviceName, workspaceNamespace)
 				g.Expect(err).NotTo(HaveOccurred())
 				g.Expect(names).NotTo(ContainSubstring(unexposedPortName))
 				// The originally exposed port must survive the update.
@@ -177,8 +142,11 @@ var _ = Describe("Workspace Sidecar Service Ports", Ordered, func() {
 
 			By("verifying the workspace stayed healthy across both updates")
 			VerifyWorkspaceConditions(workspaceName, workspaceNamespace, map[string]string{
-				controller.ConditionTypeAvailable: ConditionTrue,
-				controller.ConditionTypeDegraded:  ConditionFalse,
+				controller.ConditionTypeProgressing: ConditionFalse,
+				controller.ConditionTypeDegraded:    ConditionFalse,
+				controller.ConditionTypeAvailable:   ConditionTrue,
+				controller.ConditionTypeStopped:     ConditionFalse,
+				controller.ConditionTypeDeleting:    ConditionFalse,
 			})
 		})
 	})
