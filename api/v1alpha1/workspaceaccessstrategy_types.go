@@ -51,6 +51,14 @@ type PodModifications struct {
 	// +optional
 	AdditionalContainers []corev1.Container `json:"additionalContainers,omitempty"`
 
+	// ExposedPorts lists the container port names to publish on the workspace Service (opt-in).
+	// +optional
+	// +listType=set
+	// +kubebuilder:validation:items:MinLength=1
+	// +kubebuilder:validation:items:MaxLength=15
+	// +kubebuilder:validation:items:Pattern=`^[a-z0-9-]+$`
+	ExposedPorts []string `json:"exposedPorts,omitempty"`
+
 	// Volumes to add to the pod
 	// +optional
 	Volumes []corev1.Volume `json:"volumes,omitempty"`

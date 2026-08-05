@@ -115,6 +115,7 @@ _Appears in:_
 | Field | Description | Default | Validation |
 | --- | --- | --- | --- |
 | `additionalContainers` _[Container](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.35/#container-v1-core) array_ | AdditionalContainers to add to the pod (sidecars) |  | Optional: \{\} <br /> |
+| `exposedPorts` _string array_ | ExposedPorts lists the container port names to publish on the workspace Service (opt-in). |  | items:MaxLength: 15 <br />items:MinLength: 1 <br />items:Pattern: `^[a-z0-9-]+$` <br />Optional: \{\} <br /> |
 | `volumes` _[Volume](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.35/#volume-v1-core) array_ | Volumes to add to the pod |  | Optional: \{\} <br /> |
 | `initContainers` _[Container](https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.35/#container-v1-core) array_ | InitContainers to add to the pod |  | Optional: \{\} <br /> |
 | `primaryContainerModifications` _[PrimaryContainerModifications](#primarycontainermodifications)_ | PrimaryContainerModifications to apply to the primary container |  | Optional: \{\} <br /> |

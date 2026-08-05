@@ -233,6 +233,29 @@ func WaitForWorkspaceDeletion(workspaceName, namespace string) {
 	}).WithTimeout(2 * time.Minute).WithPolling(3 * time.Second).Should(gomega.Succeed())
 }
 
+// GetWorkspaceServiceName waits until the Workspace reports the Service it owns and returns its name.
+func GetWorkspaceServiceName(workspaceName, namespace string) string {
+	ginkgo.GinkgoHelper()
+
+	var serviceName string
+	gomega.Eventually(func(g gomega.Gomega) {
+		name, err := kubectlGet("workspace", workspaceName, namespace, "{.status.serviceName}")
+		g.Expect(err).NotTo(gomega.HaveOccurred())
+		g.Expect(name).NotTo(gomega.BeEmpty(), "workspace.status.serviceName should be set")
+		serviceName = name
+	}, 2*time.Minute, 5*time.Second).Should(gomega.Succeed())
+
+	return serviceName
+}
+
+// GetServicePortNames returns the names of every port on a Service, space separated.
+func GetServicePortNames(serviceName, namespace string) (string, error) {
+	ginkgo.GinkgoHelper()
+
+	return kubectlGet("service", serviceName, namespace,
+		"{range .spec.ports[*]}{.name}{\" \"}{end}")
+}
+
 // deleteWorkspaceAsUser deletes a workspace with kubectl impersonation
 func deleteWorkspaceAsUser(name, user string, groups []string) error {
 	ginkgo.GinkgoHelper()

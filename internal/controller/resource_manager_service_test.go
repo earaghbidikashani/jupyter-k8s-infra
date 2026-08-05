@@ -26,7 +26,7 @@ func TestResourceManager_createService(t *testing.T) {
 		c := fake.NewClientBuilder().WithScheme(scheme).Build()
 		rm := newResourceManagerForCRUD(c, scheme)
 
-		svc, err := rm.createService(context.Background(), ws)
+		svc, err := rm.createService(context.Background(), ws, nil)
 
 		require.NoError(t, err)
 		assert.Equal(t, GenerateServiceName(ws.Name), svc.Name)
@@ -40,7 +40,7 @@ func TestResourceManager_createService(t *testing.T) {
 		c := fake.NewClientBuilder().WithScheme(scheme).Build()
 		rm := newResourceManagerBrokenBuilders(c)
 
-		_, err := rm.createService(context.Background(), ws)
+		_, err := rm.createService(context.Background(), ws, nil)
 
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to build service")
@@ -56,7 +56,7 @@ func TestResourceManager_createService(t *testing.T) {
 		}
 		rm := newResourceManagerForCRUD(mock, scheme)
 
-		_, err := rm.createService(context.Background(), ws)
+		_, err := rm.createService(context.Background(), ws, nil)
 
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to create service")
@@ -89,13 +89,13 @@ func TestResourceManager_updateService(t *testing.T) {
 
 	t.Run("happy path updates the service", func(t *testing.T) {
 		rmBuild := newResourceManagerForCRUD(fake.NewClientBuilder().WithScheme(scheme).Build(), scheme)
-		svc, err := rmBuild.serviceBuilder.BuildService(ws)
+		svc, err := rmBuild.serviceBuilder.BuildService(ws, nil)
 		require.NoError(t, err)
 
 		c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(svc).Build()
 		rm := newResourceManagerForCRUD(c, scheme)
 
-		got, err := rm.updateService(context.Background(), svc, ws)
+		got, err := rm.updateService(context.Background(), svc, ws, nil)
 
 		require.NoError(t, err)
 		require.NotNil(t, got)
@@ -103,7 +103,7 @@ func TestResourceManager_updateService(t *testing.T) {
 
 	t.Run("returns error when Update fails", func(t *testing.T) {
 		rmBuild := newResourceManagerForCRUD(fake.NewClientBuilder().WithScheme(scheme).Build(), scheme)
-		svc, err := rmBuild.serviceBuilder.BuildService(ws)
+		svc, err := rmBuild.serviceBuilder.BuildService(ws, nil)
 		require.NoError(t, err)
 
 		base := fake.NewClientBuilder().WithScheme(scheme).WithObjects(svc).Build()
@@ -115,7 +115,7 @@ func TestResourceManager_updateService(t *testing.T) {
 		}
 		rm := newResourceManagerForCRUD(mock, scheme)
 
-		_, err = rm.updateService(context.Background(), svc, ws)
+		_, err = rm.updateService(context.Background(), svc, ws, nil)
 
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to update service")
@@ -131,7 +131,7 @@ func TestResourceManager_updateService(t *testing.T) {
 		c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(svc).Build()
 		rm := newResourceManagerBrokenBuilders(c)
 
-		_, err := rm.updateService(context.Background(), svc, ws)
+		_, err := rm.updateService(context.Background(), svc, ws, nil)
 
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to update service spec")
@@ -152,7 +152,7 @@ func TestResourceManager_ensureServiceUpToDate(t *testing.T) {
 		c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(svc).Build()
 		rm := newResourceManagerBrokenBuilders(c)
 
-		_, err := rm.ensureServiceUpToDate(context.Background(), svc, ws)
+		_, err := rm.ensureServiceUpToDate(context.Background(), svc, ws, nil)
 
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to check if service needs update")
@@ -166,7 +166,7 @@ func TestResourceManager_EnsureServiceExists(t *testing.T) {
 		c := fake.NewClientBuilder().WithScheme(scheme).Build()
 		rm := newResourceManagerForCRUD(c, scheme)
 
-		svc, err := rm.EnsureServiceExists(context.Background(), crudWorkspace(false))
+		svc, err := rm.EnsureServiceExists(context.Background(), crudWorkspace(false), nil)
 
 		require.NoError(t, err)
 		assert.Equal(t, GenerateServiceName(testWorkspaceName), svc.Name)
@@ -176,14 +176,14 @@ func TestResourceManager_EnsureServiceExists(t *testing.T) {
 		ws := crudWorkspace(true)
 		// Persist a service whose spec differs from the desired one so NeedsUpdate is true.
 		rmBuild := newResourceManagerForCRUD(fake.NewClientBuilder().WithScheme(scheme).Build(), scheme)
-		svc, err := rmBuild.serviceBuilder.BuildService(ws)
+		svc, err := rmBuild.serviceBuilder.BuildService(ws, nil)
 		require.NoError(t, err)
 		svc.Spec.Ports[0].Port = 9999 // drift from the builder's desired port
 
 		c := fake.NewClientBuilder().WithScheme(scheme).WithObjects(svc).Build()
 		rm := newResourceManagerForCRUD(c, scheme)
 
-		got, err := rm.EnsureServiceExists(context.Background(), ws)
+		got, err := rm.EnsureServiceExists(context.Background(), ws, nil)
 
 		require.NoError(t, err)
 		require.NotNil(t, got)
@@ -199,7 +199,7 @@ func TestResourceManager_EnsureServiceExists(t *testing.T) {
 		}
 		rm := newResourceManagerForCRUD(mock, scheme)
 
-		_, err := rm.EnsureServiceExists(context.Background(), crudWorkspace(false))
+		_, err := rm.EnsureServiceExists(context.Background(), crudWorkspace(false), nil)
 
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to get service")
