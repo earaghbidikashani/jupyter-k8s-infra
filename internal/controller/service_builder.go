@@ -116,7 +116,7 @@ func sidecarServicePorts(accessStrategy *workspacev1alpha1.WorkspaceAccessStrate
 	}
 
 	ports := make([]corev1.ServicePort, 0, len(podMods.ExposedPorts))
-	usedNumbers := map[int32]string{JupyterPort: httpScheme}
+	usedNumbers := map[int32]string{}
 
 	for _, name := range podMods.ExposedPorts {
 		if name == httpScheme {

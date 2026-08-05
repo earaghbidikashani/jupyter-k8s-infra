@@ -51,11 +51,7 @@ type PodModifications struct {
 	// +optional
 	AdditionalContainers []corev1.Container `json:"additionalContainers,omitempty"`
 
-	// ExposedPorts lists the container port names to publish on the workspace Service.
-	// Each entry must match the name of a port declared by exactly one additional container.
-	// Ports not listed here stay reachable inside the pod but are not routed by the Service.
-	// A containerPort is informational and does not by itself grant reachability, so exposure
-	// is opt-in: this makes what the Service publishes explicit rather than inferred.
+	// ExposedPorts lists the container port names to publish on the workspace Service (opt-in).
 	// +optional
 	// +listType=set
 	// +kubebuilder:validation:items:MinLength=1
